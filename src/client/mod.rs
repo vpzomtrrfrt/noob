@@ -81,6 +81,7 @@ pub struct Client {
     handle: tokio_core::reactor::Handle,
     gateway_url: String,
     connection: ConnectionState,
+    handler: PacketHandler
 }
 
 impl Client {
@@ -149,6 +150,7 @@ impl Client {
             handle,
             gateway_url,
             connection: ConnectionState::Disconnected,
+            handler: PacketHandler {}
         }
     }
     fn connect(mut self) -> Box<futures::future::Future<Item = Client, Error = Error>> {
@@ -183,17 +185,23 @@ impl Client {
         Box::new(futures::future::ok(self))
     }
     pub fn run(mut self) -> Box<futures::future::Future<Item=(),Error=Error>> {
+        let mut handler = self.handler;
         match self.connection {
             ConnectionState::Connected(socket) => {
-                Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(|packet| {
-                    println!("{:?}", packet);
+                Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(move |packet| {
+                    handler.handle_packet(packet);
                     Ok(())
                 }))
             },
             _ => Box::new(futures::future::err(Error::NotReady)),
         }
     }
-    fn handle_packet(&mut self, message: websocket::message::OwnedMessage) -> Result<(), websocket::WebSocketError> {
+}
+
+struct PacketHandler {}
+
+impl PacketHandler {
+    fn handle_packet(&mut self, message: websocket::message::OwnedMessage) -> Result<(), Error> {
         println!("{:?}", message);
         Ok(())
     }
