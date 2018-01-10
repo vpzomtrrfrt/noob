@@ -16,6 +16,7 @@ pub enum Error {
     WebsocketError(websocket::WebSocketError),
     AuthenticationFailed,
     UnexpectedResponse(String),
+    NotReady
 }
 
 impl std::fmt::Debug for Error {
@@ -38,6 +39,7 @@ impl std::error::Error for Error {
             Error::WebsocketError(ref err) => std::error::Error::description(err),
             Error::AuthenticationFailed => "Authentication Failed",
             Error::UnexpectedResponse(ref msg) => &msg,
+            Error::NotReady => "The client is in the wrong state to do that."
         }
     }
 }
@@ -131,7 +133,12 @@ impl Client {
                             }
                         };
                         println!("{}", value);
-                        let client = Client::new(handle, value["url"].to_string());
+                        let mut client = Client::new(handle, match value["url"].as_str() {
+                            None => return Box::new(futures::future::err(Error::UnexpectedResponse(
+                                        "Gateway URI was not a string".to_owned()
+                                        ))),
+                            Some(x) => x.to_owned()
+                        });
                         Box::new(client.connect().map(|_| client))
                     },
                 ),
@@ -148,44 +155,43 @@ impl Client {
         if match self.connection {
             ConnectionState::Disconnected => true,
             ConnectionState::Connecting => false,
-            ConnectionState::Connected(_) => return Box::new(futures::future::ok(())),
+            ConnectionState::Connected(_) => false,
+            ConnectionState::Ready(_) => return Box::new(futures::future::ok(())),
             ConnectionState::Failed(_) => true,
         } {
             self.connection = ConnectionState::Connecting;
+            let uri = format!("{}/?v=6&encoding=json", self.gateway_url);
             let builder = match websocket::ClientBuilder::new(
-                &format!("{}?v=6&encoding=json", self.gateway_url),
+                &uri,
             ) {
                 Ok(builder) => builder,
                 Err(err) => {
                     return Box::new(futures::future::err(Error::UnexpectedResponse(
-                        format!("Unable to parse gateway URI: {}", err),
+                        format!("Unable to parse gateway URI {}: {}", uri, err),
                     )))
                 }
             };
             let connection: websocket::client::async::ClientNew<Box<websocket::async::Stream + Send>> = builder.async_connect(None, &self.handle);
-            let task = connection
-                .and_then(|(socket, _)| {
-                    let task = socket
-                            .and_then(|packet| {
-                                match self.handle_packet(packet) {
-                                    Ok(_) => Ok(()),
-                                    Err(err) => {
-                                        panic!("Unable to deal with the packet: {}", err);
-                                    }
-                                }
-                            })
-                            .map_err(|_|());
-                    self.handle.spawn(
-                        task
-                    );
+            return Box::new(connection
+                .and_then(move |(socket, _)| {
+                    self.connection = ConnectionState::Connected(socket);
+                    println!("hi");
                     futures::future::ok(())
                 })
-                .map_err(|_|());
-            self.handle.spawn(task);
+                .map_err(|e|Error::WebsocketError(e)));
         }
-        Box::new(futures::future::err(
-            Error::UnexpectedResponse("TODO make this work".to_owned()),
-        ))
+        Box::new(futures::future::ok(()))
+    }
+    pub fn run(&mut self) -> Box<futures::future::Future<Item=(),Error=Error>> {
+        match self.connection {
+            ConnectionState::Connected(ref socket) => {
+                Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(|packet| {
+                    println!("{:?}", packet);
+                    Ok(())
+                }))
+            },
+            _ => Box::new(futures::future::err(Error::NotReady)),
+        }
     }
     fn handle_packet(&mut self, message: websocket::message::OwnedMessage) -> Result<(), websocket::WebSocketError> {
         println!("{:?}", message);

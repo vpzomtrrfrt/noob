@@ -7,6 +7,7 @@ fn main() {
         &core.handle(),
         &std::env::var("DISCORD_TOKEN")
         .expect("Missing DISCORD_TOKEN")
-        );
+        )
+        .and_then(|client|client.run());
     core.run(task).unwrap();
 }
