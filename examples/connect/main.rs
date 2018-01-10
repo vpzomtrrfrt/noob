@@ -1,5 +1,8 @@
 extern crate tokio_discord;
 extern crate tokio_core;
+extern crate futures;
+
+use futures::future::Future;
 
 fn main() {
     let mut core = tokio_core::reactor::Core::new().unwrap();

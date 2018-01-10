@@ -139,7 +139,7 @@ impl Client {
                                         ))),
                             Some(x) => x.to_owned()
                         });
-                        Box::new(client.connect().map(|_| client))
+                        Box::new(client.connect())
                     },
                 ),
         )
@@ -151,12 +151,12 @@ impl Client {
             connection: ConnectionState::Disconnected,
         }
     }
-    fn connect(&mut self) -> Box<futures::future::Future<Item = (), Error = Error>> {
+    fn connect(mut self) -> Box<futures::future::Future<Item = Client, Error = Error>> {
         if match self.connection {
             ConnectionState::Disconnected => true,
             ConnectionState::Connecting => false,
             ConnectionState::Connected(_) => false,
-            ConnectionState::Ready(_) => return Box::new(futures::future::ok(())),
+            ConnectionState::Ready(_) => return Box::new(futures::future::ok(self)),
             ConnectionState::Failed(_) => true,
         } {
             self.connection = ConnectionState::Connecting;
@@ -176,15 +176,15 @@ impl Client {
                 .and_then(move |(socket, _)| {
                     self.connection = ConnectionState::Connected(socket);
                     println!("hi");
-                    futures::future::ok(())
+                    futures::future::ok(self)
                 })
                 .map_err(|e|Error::WebsocketError(e)));
         }
-        Box::new(futures::future::ok(()))
+        Box::new(futures::future::ok(self))
     }
-    pub fn run(&mut self) -> Box<futures::future::Future<Item=(),Error=Error>> {
+    pub fn run(mut self) -> Box<futures::future::Future<Item=(),Error=Error>> {
         match self.connection {
-            ConnectionState::Connected(ref socket) => {
+            ConnectionState::Connected(socket) => {
                 Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(|packet| {
                     println!("{:?}", packet);
                     Ok(())
