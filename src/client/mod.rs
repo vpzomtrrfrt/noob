@@ -4,6 +4,7 @@ use hyper_tls;
 use native_tls;
 use futures;
 use serde_json;
+use websocket;
 use std;
 
 use futures::prelude::*;
@@ -12,6 +13,7 @@ use std::str::FromStr;
 pub enum Error {
     HTTPError(hyper::Error),
     TLSError(native_tls::Error),
+    WebsocketError(websocket::WebSocketError),
     AuthenticationFailed,
     UnexpectedResponse(String)
 }
@@ -33,10 +35,21 @@ impl std::error::Error for Error {
         match *self {
             Error::HTTPError(ref err) => std::error::Error::description(err),
             Error::TLSError(ref err) => std::error::Error::description(err),
+            Error::WebsocketError(ref err) => std::error::Error::description(err),
             Error::AuthenticationFailed => "Authentication Failed",
             Error::UnexpectedResponse(ref msg) => &msg
         }
     }
+}
+
+type WebSocket = websocket::client::async::Client<Box<websocket::stream::async::Stream + Send>>;
+
+enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected(WebSocket),
+    Ready(WebSocket),
+    Failed(Error)
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +77,8 @@ impl hyper::header::Scheme for BotAuthorizationScheme {
 
 pub struct Client {
     handle: tokio_core::reactor::Handle,
-    http: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>
+    gateway_url: String,
+    connection: ConnectionState
 }
 
 impl Client {
@@ -94,16 +108,49 @@ impl Client {
                 Err(Error::UnexpectedResponse(format!("Gateway request responded with unexpected status {}", status)))
            })
            .and_then(|body| body.concat2().map_err(|e|Error::HTTPError(e)))
-           .and_then(|chunk| {
+           .and_then(|chunk| -> Box<futures::future::Future<Item=Client, Error=Error>> {
                let value: serde_json::Value = match serde_json::from_slice(&chunk) {
                    Ok(value) => value,
-                   Err(err) => return futures::future::err(Error::UnexpectedResponse(format!("Gateway request responded with invalid JSON: {:?}", err)))
+                   Err(err) => return Box::new(futures::future::err(
+                       Error::UnexpectedResponse(
+                           format!(
+                               "Unable to parse gateway API response: {:?}", err))))
                };
                println!("{}", value);
-               futures::future::ok(Client {
-                   handle,
-                   http
-               })
+               let client = Client::new(handle, value["url"].to_string());
+               Box::new(client.connect()
+                   .map(|_|client))
            }))
+    }
+    fn new(handle: tokio_core::reactor::Handle, gateway_url: String) -> Self {
+        Client {
+            handle,
+            gateway_url,
+            connection: ConnectionState::Disconnected
+        }
+    }
+    fn connect(&mut self) -> Box<futures::future::Future<Item=(), Error=Error>> {
+        if match self.connection {
+            ConnectionState::Disconnected => true,
+            ConnectionState::Connecting => false,
+            ConnectionState::Connected(_) => return Box::new(futures::future::ok(())),
+            ConnectionState::Failed(_) => true
+        } {
+            self.connection = ConnectionState::Connecting;
+            self.handle.spawn(fut_try!(
+                    websocket::ClientBuilder::new(&format!("{}?v=6&encoding=json", self.gateway_url))
+                    .map_err(|err| Error::UnexpectedResponse(
+                            format!("Unable to parse gateway URI: {}", err)
+                            )))
+                .async_connect(None, &self.handle)
+                .and_then(|(socket, _)| {
+                    self.handle.spawn(socket.for_each(|packet|self.handle_packet(packet)).map_err(|e|Error::WebsocketError(e)));
+                }));
+        }
+        Box::new(futures::future::err(Error::UnexpectedResponse("TODO make this work".to_owned())))
+    }
+    fn handle_packet(&mut self, message: websocket::message::OwnedMessage) -> Result<(), Error> {
+        println!("{:?}", message);
+        Ok(())
     }
 }
