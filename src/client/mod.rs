@@ -150,7 +150,7 @@ impl Client {
             handle,
             gateway_url,
             connection: ConnectionState::Disconnected,
-            handler: PacketHandler {}
+            handler: PacketHandler::new()
         }
     }
     fn connect(mut self) -> Box<futures::future::Future<Item = Client, Error = Error>> {
@@ -189,8 +189,7 @@ impl Client {
         match self.connection {
             ConnectionState::Connected(socket) => {
                 Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(move |packet| {
-                    handler.handle_packet(packet);
-                    Ok(())
+                    handler.handle_message(packet)
                 }))
             },
             _ => Box::new(futures::future::err(Error::NotReady)),
@@ -198,11 +197,46 @@ impl Client {
     }
 }
 
-struct PacketHandler {}
+#[derive(Deserialize)]
+struct Packet {
+    op: u8,
+    d: serde_json::Value,
+    s: Option<u64>,
+    t: Option<String>
+}
+
+struct PacketHandler {
+    heartbeat_interval: Option<u64>
+}
 
 impl PacketHandler {
-    fn handle_packet(&mut self, message: websocket::message::OwnedMessage) -> Result<(), Error> {
+    fn new() -> Self {
+        return PacketHandler {
+            heartbeat_interval: None
+        };
+    }
+
+    fn handle_message(&mut self, message: websocket::message::OwnedMessage) -> Result<(), Error> {
+        use websocket::message::OwnedMessage;
         println!("{:?}", message);
-        Ok(())
+        match message {
+            OwnedMessage::Text(ref text) => {
+                let packet: Packet = serde_json::from_str(text)
+                    .map_err(|e|Error::UnexpectedResponse(
+                            format!("Unable to parse packet JSON: {}", e)))?;
+                self.handle_packet(packet)
+            },
+            _ => Err(Error::UnexpectedResponse(format!("Unexpected message type: {:?}", message)))
+        }
+    }
+
+    fn handle_packet(&mut self, packet: Packet) -> Result<(), Error> {
+        match packet.op {
+            10 => {
+                self.heartbeat_interval = Some(packet.d["heartbeat_interval"].as_u64().ok_or(Error::UnexpectedResponse("heartbeat interval isn't a number?".to_owned()))?);
+                Ok(())
+            },
+            _ => Err(Error::UnexpectedResponse(format!("Unexpected opcode: {}", packet.op)))
+        }
     }
 }
