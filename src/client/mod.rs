@@ -81,7 +81,8 @@ pub struct Client {
     handle: tokio_core::reactor::Handle,
     gateway_url: String,
     connection: ConnectionState,
-    handler: PacketHandler
+    handler: PacketHandler,
+    token: String
 }
 
 impl Client {
@@ -89,6 +90,7 @@ impl Client {
         handle: &tokio_core::reactor::Handle,
         token: &str,
     ) -> Box<Future<Item = Client, Error = Error>> {
+        let token = token.to_owned();
         let handle = handle.clone();
         let http = hyper::Client::configure()
             .connector(fut_try!(
@@ -103,7 +105,7 @@ impl Client {
             ),
         );
         request.headers_mut().set(hyper::header::Authorization(
-            fut_try!(BotAuthorizationScheme::from_str(token)),
+            fut_try!(BotAuthorizationScheme::from_str(&token)),
         ));
         Box::new(
             http.request(request)
@@ -139,17 +141,18 @@ impl Client {
                                         "Gateway URI was not a string".to_owned()
                                         ))),
                             Some(x) => x.to_owned()
-                        });
+                        }, token);
                         Box::new(client.connect())
                     },
                 ),
         )
     }
-    fn new(handle: tokio_core::reactor::Handle, gateway_url: String) -> Self {
+    fn new(handle: tokio_core::reactor::Handle, gateway_url: String, token: String) -> Self {
         Client {
             handle,
             gateway_url,
             connection: ConnectionState::Disconnected,
+            token,
             handler: PacketHandler::new()
         }
     }
@@ -186,10 +189,11 @@ impl Client {
     }
     pub fn run(mut self) -> Box<futures::future::Future<Item=(),Error=Error>> {
         let mut handler = self.handler;
+        let token = self.token;
         match self.connection {
             ConnectionState::Connected(socket) => {
                 Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(move |packet| {
-                    handler.handle_message(packet)
+                    handler.handle_message(packet, &token)
                 }))
             },
             _ => Box::new(futures::future::err(Error::NotReady)),
@@ -216,7 +220,7 @@ impl PacketHandler {
         };
     }
 
-    fn handle_message(&mut self, message: websocket::message::OwnedMessage) -> Result<(), Error> {
+    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str) -> Result<(), Error> {
         use websocket::message::OwnedMessage;
         println!("{:?}", message);
         match message {
@@ -224,13 +228,13 @@ impl PacketHandler {
                 let packet: Packet = serde_json::from_str(text)
                     .map_err(|e|Error::UnexpectedResponse(
                             format!("Unable to parse packet JSON: {}", e)))?;
-                self.handle_packet(packet)
+                self.handle_packet(packet, token)
             },
             _ => Err(Error::UnexpectedResponse(format!("Unexpected message type: {:?}", message)))
         }
     }
 
-    fn handle_packet(&mut self, packet: Packet) -> Result<(), Error> {
+    fn handle_packet(&mut self, packet: Packet, token: &str) -> Result<(), Error> {
         match packet.op {
             10 => {
                 self.heartbeat_interval = Some(packet.d["heartbeat_interval"].as_u64().ok_or(Error::UnexpectedResponse("heartbeat interval isn't a number?".to_owned()))?);
