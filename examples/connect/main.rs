@@ -9,7 +9,10 @@ fn main() {
     let task = tokio_discord::Client::login_bot(
         &core.handle(),
         &std::env::var("DISCORD_TOKEN")
-        .expect("Missing DISCORD_TOKEN")
+        .expect("Missing DISCORD_TOKEN"),
+        Box::new(|evt| {
+            println!("Event received: {:?}", evt);
+        })
         )
         .and_then(|client|client.run());
     core.run(task).unwrap();

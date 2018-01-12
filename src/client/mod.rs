@@ -10,6 +10,8 @@ use std;
 use futures::prelude::*;
 use std::str::FromStr;
 
+mod events;
+
 pub enum Error {
     HTTPError(hyper::Error),
     TLSError(native_tls::Error),
@@ -91,6 +93,7 @@ impl Client {
     pub fn login_bot(
         handle: &tokio_core::reactor::Handle,
         token: &str,
+        event_callback: Box<Fn(events::Event) -> ()>
     ) -> Box<Future<Item = Client, Error = Error>> {
         let token = token.to_owned();
         let handle = handle.clone();
@@ -143,19 +146,19 @@ impl Client {
                                         "Gateway URI was not a string".to_owned()
                                         ))),
                             Some(x) => x.to_owned()
-                        }, token);
+                        }, token, event_callback);
                         Box::new(client.connect())
                     },
                 ),
         )
     }
-    fn new(handle: tokio_core::reactor::Handle, gateway_url: String, token: String) -> Self {
+    fn new(handle: tokio_core::reactor::Handle, gateway_url: String, token: String, event_callback: Box<Fn(events::Event) -> ()>) -> Self {
         Client {
             handle,
             gateway_url,
             connection: ConnectionState::Disconnected,
             token,
-            handler: PacketHandler::new()
+            handler: PacketHandler::new(event_callback)
         }
     }
     fn connect(mut self) -> Box<futures::future::Future<Item = Client, Error = Error>> {
@@ -217,13 +220,15 @@ struct Packet {
 }
 
 struct PacketHandler {
-    heartbeat_interval: Option<u64>
+    heartbeat_interval: Option<u64>,
+    event_callback: Box<Fn(events::Event) -> ()>
 }
 
 impl PacketHandler {
-    fn new() -> Self {
+    fn new(event_callback: Box<Fn(events::Event) -> ()>) -> Self {
         return PacketHandler {
-            heartbeat_interval: None
+            heartbeat_interval: None,
+            event_callback
         };
     }
 
@@ -243,6 +248,15 @@ impl PacketHandler {
 
     fn handle_packet(&mut self, packet: Packet, token: &str) -> Result<Option<websocket::OwnedMessage>, Error> {
         match packet.op {
+            0 => {
+                let t = packet.t.ok_or(Error::UnexpectedResponse("Missing \"t\" in event dispatch".to_owned()))?;
+                let event = match &t as &str {
+                    "READY" => Ok(events::Event::Ready),
+                    _ => Err(Error::UnexpectedResponse(format!("Unexpected event type: {}", t)))
+                }?;
+                (self.event_callback)(event);
+                Ok(None)
+            },
             10 => {
                 self.heartbeat_interval = Some(packet.d["heartbeat_interval"].as_u64().ok_or(Error::UnexpectedResponse("heartbeat interval isn't a number?".to_owned()))?);
                 Ok(Some(websocket::OwnedMessage::Text(serde_json::to_string(&Packet {
