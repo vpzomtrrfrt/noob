@@ -247,7 +247,15 @@ impl PacketHandler {
                 self.heartbeat_interval = Some(packet.d["heartbeat_interval"].as_u64().ok_or(Error::UnexpectedResponse("heartbeat interval isn't a number?".to_owned()))?);
                 Ok(Some(websocket::OwnedMessage::Text(serde_json::to_string(&Packet {
                     op: 2,
-                    d: json!({}),
+                    d: json!({
+                        "token": token,
+                        "properties": {
+                            "$os": "linux",
+                            "$browser": "tokio_discord",
+                            "$device": "tokio_discord"
+                        },
+                        "compress": false
+                    }),
                     s: None,
                     t: None
                 }).map_err(|e|Error::UhWhat(format!("unable to serialize JSON: {}", e)))?)))
