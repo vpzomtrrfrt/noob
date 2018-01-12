@@ -16,7 +16,8 @@ pub enum Error {
     WebsocketError(websocket::WebSocketError),
     AuthenticationFailed,
     UnexpectedResponse(String),
-    NotReady
+    NotReady,
+    UhWhat(String)
 }
 
 impl std::fmt::Debug for Error {
@@ -39,6 +40,7 @@ impl std::error::Error for Error {
             Error::WebsocketError(ref err) => std::error::Error::description(err),
             Error::AuthenticationFailed => "Authentication Failed",
             Error::UnexpectedResponse(ref msg) => &msg,
+            Error::UhWhat(ref msg) => &msg,
             Error::NotReady => "The client is in the wrong state to do that."
         }
     }
@@ -192,16 +194,21 @@ impl Client {
         let token = self.token;
         match self.connection {
             ConnectionState::Connected(socket) => {
-                Box::new(socket.map_err(|e|Error::WebsocketError(e)).for_each(move |packet| {
-                    handler.handle_message(packet, &token)
-                }))
+                let (sink, stream) = socket.split();
+                let mapped = sink.sink_map_err(|e|Error::WebsocketError(e));
+                Box::new(mapped.send_all(
+                        stream.map_err(|e|Error::WebsocketError(e))
+                        .and_then(move |packet| {
+                            handler.handle_message(packet, &token)
+                        })
+                        .filter_map(|x|x)).map(|_|()))
             },
             _ => Box::new(futures::future::err(Error::NotReady)),
         }
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Packet {
     op: u8,
     d: serde_json::Value,
@@ -220,7 +227,7 @@ impl PacketHandler {
         };
     }
 
-    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str) -> Result<(), Error> {
+    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str) -> Result<Option<websocket::OwnedMessage>, Error> {
         use websocket::message::OwnedMessage;
         println!("{:?}", message);
         match message {
@@ -234,11 +241,16 @@ impl PacketHandler {
         }
     }
 
-    fn handle_packet(&mut self, packet: Packet, token: &str) -> Result<(), Error> {
+    fn handle_packet(&mut self, packet: Packet, token: &str) -> Result<Option<websocket::OwnedMessage>, Error> {
         match packet.op {
             10 => {
                 self.heartbeat_interval = Some(packet.d["heartbeat_interval"].as_u64().ok_or(Error::UnexpectedResponse("heartbeat interval isn't a number?".to_owned()))?);
-                Ok(())
+                Ok(Some(websocket::OwnedMessage::Text(serde_json::to_string(&Packet {
+                    op: 2,
+                    d: json!({}),
+                    s: None,
+                    t: None
+                }).map_err(|e|Error::UhWhat(format!("unable to serialize JSON: {}", e)))?)))
             },
             _ => Err(Error::UnexpectedResponse(format!("Unexpected opcode: {}", packet.op)))
         }
