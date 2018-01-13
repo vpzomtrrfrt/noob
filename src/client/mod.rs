@@ -17,6 +17,7 @@ pub enum Error {
     HTTPError(hyper::Error),
     TLSError(native_tls::Error),
     WebsocketError(websocket::WebSocketError),
+    JSONError(serde_json::Error),
     AuthenticationFailed,
     UnexpectedResponse(String),
     NotReady,
@@ -41,6 +42,7 @@ impl std::error::Error for Error {
             Error::HTTPError(ref err) => std::error::Error::description(err),
             Error::TLSError(ref err) => std::error::Error::description(err),
             Error::WebsocketError(ref err) => std::error::Error::description(err),
+            Error::JSONError(ref err) => std::error::Error::description(err),
             Error::AuthenticationFailed => "Authentication Failed",
             Error::UnexpectedResponse(ref msg) => &msg,
             Error::UhWhat(ref msg) => &msg,
@@ -155,11 +157,11 @@ impl Client {
     }
     fn new(handle: tokio_core::reactor::Handle, gateway_url: String, token: String, event_callback: Box<Fn(events::Event) -> ()>) -> Self {
         Client {
-            handle,
+            handle: handle.clone(),
             gateway_url,
             connection: ConnectionState::Disconnected,
             token,
-            handler: PacketHandler::new(event_callback)
+            handler: PacketHandler::new(event_callback, handle)
         }
     }
     fn connect(mut self) -> Box<futures::future::Future<Item = Client, Error = Error>> {
@@ -198,14 +200,14 @@ impl Client {
         let token = self.token;
         match self.connection {
             ConnectionState::Connected(socket) => {
+                let (send, recv) = futures::sync::mpsc::channel::<websocket::OwnedMessage>(64);
                 let (sink, stream) = socket.split();
-                let mapped = sink.sink_map_err(|e|Error::WebsocketError(e));
-                Box::new(mapped.send_all(
-                        stream.map_err(|e|Error::WebsocketError(e))
-                        .and_then(move |packet| {
-                            handler.handle_message(packet, &token)
-                        })
-                        .filter_map(|x|x)).map(|_|()))
+                let input = stream.map_err(|e|Error::WebsocketError(e))
+                    .for_each(move |packet| {
+                        handler.handle_message(packet, &token, &send)
+                    });
+                let output = sink.sink_map_err(|e|Error::WebsocketError(e)).send_all(recv.map_err(|e|Error::UhWhat(format!("this shouldn't be happening"))));
+                Box::new(input.join(output).map(|_|()))
             },
             _ => Box::new(futures::future::err(Error::NotReady)),
         }
@@ -220,20 +222,34 @@ struct Packet {
     t: Option<String>
 }
 
+struct Interface {
+    sink: futures::sync::mpsc::Sender<websocket::OwnedMessage>
+}
+
+impl Interface {
+    fn send_packet(&self, packet: &Packet) -> Box<Future<Item=(),Error=Error>> {
+        Box::new(self.sink.clone().send(websocket::OwnedMessage::Text(
+                    fut_try!(serde_json::to_string(packet).map_err(|e|Error::JSONError(e)))))
+            .map(|_|()).map_err(|e|Error::UhWhat(format!("failed to send packet: {}", e))))
+    }
+}
+
 struct PacketHandler {
     heartbeat_interval: Option<u64>,
-    event_callback: Box<Fn(events::Event) -> ()>
+    event_callback: Box<Fn(events::Event) -> ()>,
+    handle: tokio_core::reactor::Handle
 }
 
 impl PacketHandler {
-    fn new(event_callback: Box<Fn(events::Event) -> ()>) -> Self {
+    fn new(event_callback: Box<Fn(events::Event) -> ()>, handle: tokio_core::reactor::Handle) -> Self {
         return PacketHandler {
             heartbeat_interval: None,
-            event_callback
+            event_callback,
+            handle
         };
     }
 
-    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str) -> Result<Option<websocket::OwnedMessage>, Error> {
+    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str, sink: &futures::sync::mpsc::Sender<websocket::OwnedMessage>) -> Result<(), Error> {
         use websocket::message::OwnedMessage;
         println!("{:?}", message);
         match message {
@@ -241,13 +257,13 @@ impl PacketHandler {
                 let packet: Packet = serde_json::from_str(text)
                     .map_err(|e|Error::UnexpectedResponse(
                             format!("Unable to parse packet JSON: {}", e)))?;
-                self.handle_packet(packet, token)
+                self.handle_packet(packet, token, Interface {sink: sink.clone()})
             },
             _ => Err(Error::UnexpectedResponse(format!("Unexpected message type: {:?}", message)))
         }
     }
 
-    fn handle_packet(&mut self, packet: Packet, token: &str) -> Result<Option<websocket::OwnedMessage>, Error> {
+    fn handle_packet(&mut self, packet: Packet, token: &str, mut client: Interface) -> Result<(), Error> {
         match packet.op {
             0 => {
                 let t = packet.t.ok_or(Error::UnexpectedResponse("Missing \"t\" in event dispatch".to_owned()))?;
@@ -262,11 +278,11 @@ impl PacketHandler {
                     _ => Err(Error::UnexpectedResponse(format!("Unexpected event type: {}", t)))
                 }?;
                 (self.event_callback)(event);
-                Ok(None)
+                Ok(())
             },
             10 => {
                 self.heartbeat_interval = Some(packet.d["heartbeat_interval"].as_u64().ok_or(Error::UnexpectedResponse("heartbeat interval isn't a number?".to_owned()))?);
-                Ok(Some(websocket::OwnedMessage::Text(serde_json::to_string(&Packet {
+                self.handle.spawn(client.send_packet(&Packet {
                     op: 2,
                     d: json!({
                         "token": token,
@@ -279,7 +295,8 @@ impl PacketHandler {
                     }),
                     s: None,
                     t: None
-                }).map_err(|e|Error::UhWhat(format!("unable to serialize JSON: {}", e)))?)))
+                }).map_err(|e|panic!(e)).map(|_|()));
+                Ok(())
             },
             _ => Err(Error::UnexpectedResponse(format!("Unexpected opcode: {}", packet.op)))
         }
