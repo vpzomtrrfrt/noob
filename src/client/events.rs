@@ -1,4 +1,7 @@
+use client::objects;
+
 #[derive(Debug)]
 pub enum Event {
-    Ready
+    Ready,
+    GuildCreate(objects::Guild)
 }

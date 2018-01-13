@@ -11,6 +11,7 @@ use futures::prelude::*;
 use std::str::FromStr;
 
 mod events;
+mod objects;
 
 pub enum Error {
     HTTPError(hyper::Error),
@@ -252,6 +253,12 @@ impl PacketHandler {
                 let t = packet.t.ok_or(Error::UnexpectedResponse("Missing \"t\" in event dispatch".to_owned()))?;
                 let event = match &t as &str {
                     "READY" => Ok(events::Event::Ready),
+                    "GUILD_CREATE" => {
+                        let d = &packet.d.to_string();
+                        println!("{}", d);
+                        let guild = serde_json::from_str(d).map_err(|e|Error::UnexpectedResponse(format!("can't parse packet data: {}", e)))?;
+                        Ok(events::Event::GuildCreate(guild))
+                    },
                     _ => Err(Error::UnexpectedResponse(format!("Unexpected event type: {}", t)))
                 }?;
                 (self.event_callback)(event);
