@@ -204,7 +204,10 @@ impl Client {
                 let (sink, stream) = socket.split();
                 let input = stream.map_err(|e|Error::WebsocketError(e))
                     .for_each(move |packet| {
-                        handler.handle_message(packet, &token, &send)
+                        if let Err(err) = handler.handle_message(packet, &token, &send) {
+                            eprintln!("Error handling message: {}", err);
+                        }
+                        Ok(())
                     });
                 let output = sink.sink_map_err(|e|Error::WebsocketError(e)).send_all(recv.map_err(|e|Error::UhWhat(format!("this shouldn't be happening"))));
                 Box::new(input.join(output).map(|_|()))
