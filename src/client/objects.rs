@@ -3,6 +3,28 @@ use serde_json;
 pub type Snowflake = String;
 
 #[derive(Debug, Deserialize)]
+pub struct Message {
+    id: Snowflake,
+    channel_id: Snowflake,
+    //author: User,
+    content: String,
+    timestamp: String,
+    edited_timestamp: Option<String>,
+    tts: bool,
+    mention_everyone: bool,
+    //mentions: Box<[User]>,
+    mention_roles: Box<[Snowflake]>,
+    //attachments: Box<[Attachment]>,
+    //embeds: Box<[Embeds]>,
+    //reactions: Vec<Reaction>,
+    nonce: Option<Snowflake>,
+    pinned: bool,
+    webhook_id: Option<String>,
+    #[serde(rename = "type")]
+    message_type: u8
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Channel {
     id: Snowflake,
     #[serde(rename = "type")]

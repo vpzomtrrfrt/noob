@@ -275,8 +275,13 @@ impl PacketHandler {
                     "GUILD_CREATE" => {
                         let d = &packet.d.to_string();
                         println!("{}", d);
-                        let guild = serde_json::from_str(d).map_err(|e|Error::UnexpectedResponse(format!("can't parse packet data: {}", e)))?;
+                        let guild = serde_json::from_str(d).map_err(|e|Error::JSONError(e))?;
                         Ok(events::Event::GuildCreate(guild))
+                    },
+                    "MESSAGE_CREATE" => {
+                        let d = &packet.d.to_string();
+                        let message = serde_json::from_str(d).map_err(|e|Error::JSONError(e))?;
+                        Ok(events::Event::MessageCreate(message))
                     },
                     _ => Err(Error::UnexpectedResponse(format!("Unexpected event type: {}", t)))
                 }?;
