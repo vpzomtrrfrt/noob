@@ -10,8 +10,8 @@ use std;
 use futures::prelude::*;
 use std::str::FromStr;
 
-mod events;
-mod objects;
+pub mod events;
+pub mod objects;
 
 pub enum Error {
     HTTPError(hyper::Error),
@@ -89,14 +89,16 @@ pub struct Client {
     gateway_url: String,
     connection: ConnectionState,
     handler: PacketHandler,
-    token: String
+    token: String,
+    http_client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>
+
 }
 
 impl Client {
     pub fn login_bot(
         handle: &tokio_core::reactor::Handle,
         token: &str,
-        event_callback: Box<Fn(events::Event) -> ()>
+        event_callback: Box<Fn(events::Event, &Interface) -> ()>
     ) -> Box<Future<Item = Client, Error = Error>> {
         let token = token.to_owned();
         let handle = handle.clone();
@@ -112,9 +114,10 @@ impl Client {
                     .map_err(|e| Error::HTTPError(e.into()))
             ),
         );
-        request.headers_mut().set(hyper::header::Authorization(
+        let auth_header = hyper::header::Authorization(
             fut_try!(BotAuthorizationScheme::from_str(&token)),
-        ));
+        );
+        request.headers_mut().set(auth_header.clone());
         Box::new(
             http.request(request)
                 .map_err(|e| Error::HTTPError(e))
@@ -149,19 +152,27 @@ impl Client {
                                         "Gateway URI was not a string".to_owned()
                                         ))),
                             Some(x) => x.to_owned()
-                        }, token, event_callback);
+                        }, token, event_callback, http, auth_header);
                         Box::new(client.connect())
                     },
                 ),
         )
     }
-    fn new(handle: tokio_core::reactor::Handle, gateway_url: String, token: String, event_callback: Box<Fn(events::Event) -> ()>) -> Self {
+    fn new(
+        handle: tokio_core::reactor::Handle,
+        gateway_url: String,
+        token: String,
+        event_callback: Box<Fn(events::Event, &Interface) -> ()>,
+        http_client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
+        auth_header: hyper::header::Authorization<BotAuthorizationScheme>
+        ) -> Self {
         Client {
             handle: handle.clone(),
             gateway_url,
             connection: ConnectionState::Disconnected,
             token,
-            handler: PacketHandler::new(event_callback, handle)
+            handler: PacketHandler::new(event_callback, handle, auth_header),
+            http_client
         }
     }
     fn connect(mut self) -> Box<futures::future::Future<Item = Client, Error = Error>> {
@@ -198,13 +209,14 @@ impl Client {
     pub fn run(mut self) -> Box<futures::future::Future<Item=(),Error=Error>> {
         let mut handler = self.handler;
         let token = self.token;
+        let http_client = self.http_client;
         match self.connection {
             ConnectionState::Connected(socket) => {
                 let (send, recv) = futures::sync::mpsc::channel::<websocket::OwnedMessage>(64);
                 let (sink, stream) = socket.split();
                 let input = stream.map_err(|e|Error::WebsocketError(e))
                     .for_each(move |packet| {
-                        if let Err(err) = handler.handle_message(packet, &token, &send) {
+                        if let Err(err) = handler.handle_message(packet, &token, &send, &http_client) {
                             eprintln!("Error handling message: {}", err);
                         }
                         Ok(())
@@ -225,34 +237,102 @@ struct Packet {
     t: Option<String>
 }
 
-struct Interface {
-    sink: futures::sync::mpsc::Sender<websocket::OwnedMessage>
+#[must_use]
+#[derive(Serialize)]
+pub struct MessageBuilder<'a> {
+    #[serde(skip)]
+    interface: &'a Interface<'a>,
+    #[serde(skip)]
+    channel: objects::Snowflake,
+    content: String,
+    tts: bool,
+    nonce: Option<objects::Snowflake>
 }
 
-impl Interface {
+impl<'a> MessageBuilder<'a> {
+    fn new<'b>(interface: &'b Interface, channel: objects::Snowflake, content: String) -> MessageBuilder<'b> {
+        MessageBuilder {
+            interface,
+            channel,
+            content,
+            tts: false,
+            nonce: None
+        }
+    }
+    pub fn tts(&mut self) -> &mut Self {
+        self.tts = true;
+        self
+    }
+    pub fn nonce(&mut self, snowflake: objects::Snowflake) -> &mut Self {
+        self.nonce = Some(snowflake);
+        self
+    }
+    pub fn send(&self) -> Box<Future<Item=(), Error=Error>> {
+        let mut req = self.interface.new_request(
+            hyper::Method::Post,
+            fut_try!(hyper::Uri::from_str(
+                &format!("https://discordapp.com/api/channels/{}/messages", self.channel)).map_err(|e|Error::UhWhat(format!("URI appears to be invalid: {}", e)))));
+        req.headers_mut().set(hyper::header::ContentType::json());
+        req.set_body(fut_try!(serde_json::to_string(self).map_err(|e|Error::JSONError(e))));
+        Box::new(self.interface.send_request(req)
+            .map_err(|e|Error::HTTPError(e))
+            .and_then(|res| -> Box<Future<Item=(),Error=Error>> {
+                if res.status().is_success() {
+                    Box::new(futures::future::ok(()))
+                }
+                else {
+                    Box::new(res.body().concat2()
+                        .map_err(|e|Error::HTTPError(e))
+                        .and_then(|chunk| String::from_utf8(chunk.to_vec()).map_err(|e|Error::UnexpectedResponse(format!("Couldn't parse server response as UTF8: {}", e))))
+                        .and_then(|text| futures::future::err(Error::UnexpectedResponse(format!("Failed to send message: {}", text)))))
+                }
+            }))
+    }
+}
+
+pub struct Interface<'a> {
+    sink: futures::sync::mpsc::Sender<websocket::OwnedMessage>,
+    http_client: &'a hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
+    auth_header: hyper::header::Authorization<BotAuthorizationScheme>
+}
+
+impl<'a> Interface<'a> {
     fn send_packet(&self, packet: &Packet) -> Box<Future<Item=(),Error=Error>> {
         Box::new(self.sink.clone().send(websocket::OwnedMessage::Text(
                     fut_try!(serde_json::to_string(packet).map_err(|e|Error::JSONError(e)))))
             .map(|_|()).map_err(|e|Error::UhWhat(format!("failed to send packet: {}", e))))
     }
+    fn new_request<B>(&self, method: hyper::Method, uri: hyper::Uri) -> hyper::Request<B> {
+        let mut tr = hyper::Request::new(method, uri);
+        tr.headers_mut().set(self.auth_header.clone());
+        tr
+    }
+    fn send_request(&self, request: hyper::Request<hyper::Body>) -> hyper::client::FutureResponse {
+        self.http_client.request(request)
+    }
+    pub fn create_message(&self, channel_id: objects::Snowflake, content: &str) -> MessageBuilder {
+        MessageBuilder::new(self, channel_id, content.to_owned())
+    }
 }
 
 struct PacketHandler {
     heartbeat_interval: Option<u64>,
-    event_callback: Box<Fn(events::Event) -> ()>,
-    handle: tokio_core::reactor::Handle
+    event_callback: Box<Fn(events::Event, &Interface) -> ()>,
+    handle: tokio_core::reactor::Handle,
+    auth_header: hyper::header::Authorization<BotAuthorizationScheme>
 }
 
 impl PacketHandler {
-    fn new(event_callback: Box<Fn(events::Event) -> ()>, handle: tokio_core::reactor::Handle) -> Self {
+    fn new(event_callback: Box<Fn(events::Event, &Interface) -> ()>, handle: tokio_core::reactor::Handle, auth_header: hyper::header::Authorization<BotAuthorizationScheme>) -> Self {
         return PacketHandler {
             heartbeat_interval: None,
             event_callback,
-            handle
+            handle,
+            auth_header
         };
     }
 
-    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str, sink: &futures::sync::mpsc::Sender<websocket::OwnedMessage>) -> Result<(), Error> {
+    fn handle_message(&mut self, message: websocket::message::OwnedMessage, token: &str, sink: &futures::sync::mpsc::Sender<websocket::OwnedMessage>, http_client: &hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>) -> Result<(), Error> {
         use websocket::message::OwnedMessage;
         println!("{:?}", message);
         match message {
@@ -260,7 +340,8 @@ impl PacketHandler {
                 let packet: Packet = serde_json::from_str(text)
                     .map_err(|e|Error::UnexpectedResponse(
                             format!("Unable to parse packet JSON: {}", e)))?;
-                self.handle_packet(packet, token, Interface {sink: sink.clone()})
+                let auth_header = self.auth_header.clone();
+                self.handle_packet(packet, token, Interface {sink: sink.clone(), http_client, auth_header})
             },
             _ => Err(Error::UnexpectedResponse(format!("Unexpected message type: {:?}", message)))
         }
@@ -285,7 +366,7 @@ impl PacketHandler {
                     },
                     _ => Err(Error::UnexpectedResponse(format!("Unexpected event type: {}", t)))
                 }?;
-                (self.event_callback)(event);
+                (self.event_callback)(event, &client);
                 Ok(())
             },
             10 => {

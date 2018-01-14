@@ -4,10 +4,10 @@ pub type Snowflake = String;
 
 #[derive(Debug, Deserialize)]
 pub struct Message {
-    id: Snowflake,
-    channel_id: Snowflake,
+    pub id: Snowflake,
+    pub channel_id: Snowflake,
     //author: User,
-    content: String,
+    pub content: String,
     timestamp: String,
     edited_timestamp: Option<String>,
     tts: bool,

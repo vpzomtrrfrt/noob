@@ -17,3 +17,5 @@ macro_rules! fut_try(
 
 mod client;
 pub use client::Client;
+pub use client::events;
+pub use client::objects;
