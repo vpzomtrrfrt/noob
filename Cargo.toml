@@ -1,7 +1,11 @@
 [package]
 authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
-name = "tokio_discord"
+name = "noob"
 version = "0.1.0"
+license = "MIT"
+keywords = ["tokio", "discord"]
+repository = "https://github.com/vpzomtrrfrt/tokio_discord"
+description = "A WIP (and probably very bad) futures-based Discord library"
 
 [dependencies]
 futures = "0.1.17"
