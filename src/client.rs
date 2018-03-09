@@ -61,14 +61,14 @@ pub fn run_bot<F: Fn(Event) -> ()>(
                           .map_err(|e|e.into())
                           .and_then(|(socket, _)| {
                               use futures::Sink;
-                              let (sink, recv) = futures::sync::mpsc::channel::<websocket::OwnedMessage>(64);
+                              let (sink, recv) = futures::sync::mpsc::unbounded::<websocket::OwnedMessage>();
                               let (ws_sink, ws_stream) = socket.split();
                               let input = ws_stream.map_err(|e|e.into())
                                   .for_each(move |message| {
                                       println!("message: {:?}", message);
                                       match message {
                                           websocket::message::OwnedMessage::Text(t) => {
-                                              match handle_packet(&t, &token, &mut sink.clone(), &handle) {
+                                              match handle_packet(&t, &token, &sink, &handle) {
                                                   Ok(_) => {},
                                                   Err(e) => eprintln!("Error handling packet: {:?}", e)
                                               }
@@ -98,7 +98,7 @@ struct Packet {
 fn handle_packet(
     text: &str,
     token: &str,
-    sink: &mut futures::sync::mpsc::Sender<websocket::OwnedMessage>,
+    sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
     handle: &tokio_core::reactor::Handle) -> Result<(), Error> {
     let packet: Packet = serde_json::from_str(text).map_err(
         |e|Error::UnexpectedResponse(format!("Unable to parse JSON: {:?}", e))
@@ -106,7 +106,7 @@ fn handle_packet(
     println!("packet: {:?}", packet);
     match packet.op {
         10 => {
-            handle.spawn(send_packet(sink, &Packet {
+            send_packet(sink, &Packet {
                 op: 2,
                 s: None,
                 t: None,
@@ -119,8 +119,7 @@ fn handle_packet(
                     },
                     "compress": false
                 })
-            }).map_err(|e|panic!(e)));
-            Ok(())
+            })
         },
         op => {
             eprintln!("Unexpected opcode: {}", op);
@@ -129,13 +128,10 @@ fn handle_packet(
     }
 }
 
-fn send_packet<S: 'static + futures::Sink<SinkItem=websocket::OwnedMessage>>(
-    sink: &mut S,
-    packet: &Packet) -> Box<Future<Item=(),Error=Error>>
-where <S as futures::Sink>::SinkError: std::fmt::Debug
+fn send_packet(
+    sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
+    packet: &Packet) -> Result<(), Error>
 {
-    use futures::Sink;
-    use futures::IntoFuture;
-    Box::new(sink.start_send(websocket::OwnedMessage::Text(box_fut_try!(serde_json::to_string(packet).map_err(|e|Error::UnexpectedResponse(format!("Unable to serialize packet: {:?}", e))))))
-             .map(|_|()).map_err(|e|Error::UnexpectedResponse(format!("Error sending packet: {:?}", e))).into_future())
+    sink.send(websocket::OwnedMessage::Text(serde_json::to_string(packet).map_err(|e|Error::UnexpectedResponse(format!("Unable to serialize packet: {:?}", e)))?))
+        .map_err(|e|Error::InternalError(format!("mpsc failure3: {:?}", e)))
 }
