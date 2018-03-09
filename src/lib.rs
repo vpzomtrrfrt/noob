@@ -1,10 +1,10 @@
 #[macro_use] extern crate quick_error;
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate serde_json;
 extern crate hyper;
 extern crate hyper_tls;
 extern crate futures;
 extern crate tokio_core;
-extern crate serde_json;
 extern crate websocket;
 
 macro_rules! fut_try(

@@ -16,6 +16,7 @@ quick_error! {
             from()
         }
         AuthenticationFailed {}
-        UnexpectedResponse(msg: String)
+        UnexpectedResponse(msg: String) {}
+        InternalError(msg: String) {}
     }
 }
