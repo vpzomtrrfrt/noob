@@ -7,6 +7,8 @@ use websocket;
 use std;
 use tokio_timer;
 
+use events;
+
 use events::Event;
 use error::Error;
 use futures::future;
@@ -17,7 +19,7 @@ use futures::Stream;
 
 type WebSocket = websocket::client::async::Client<Box<websocket::stream::async::Stream + Send>>;
 
-pub fn run_bot<F: Fn(Event) -> ()>(
+pub fn run_bot<F: 'static + Fn(Event) -> ()>(
     handle: &tokio_core::reactor::Handle,
     token: &str,
     listener: F
@@ -68,10 +70,9 @@ pub fn run_bot<F: Fn(Event) -> ()>(
                                   std::sync::RwLock::new(None));
                               let input = ws_stream.map_err(|e|e.into())
                                   .for_each(move |message| {
-                                      println!("message: {:?}", message);
                                       match message {
                                           websocket::message::OwnedMessage::Text(t) => {
-                                              match handle_packet(&t, &token, &sink, &handle, &seq_store) {
+                                              match handle_packet(&t, &token, &sink, &handle, &seq_store, &listener) {
                                                   Ok(_) => {},
                                                   Err(e) => eprintln!("Error handling packet: {:?}", e)
                                               }
@@ -98,12 +99,13 @@ struct Packet {
     t: Option<String>
 }
 
-fn handle_packet(
+fn handle_packet<F: Fn(Event) -> ()>(
     text: &str,
     token: &str,
     sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
     handle: &tokio_core::reactor::Handle,
-    seq_store: &std::sync::Arc<std::sync::RwLock<Option<u64>>>) -> Result<(), Error> {
+    seq_store: &std::sync::Arc<std::sync::RwLock<Option<u64>>>,
+    listener: &F) -> Result<(), Error> {
     let packet: Packet = serde_json::from_str(text).map_err(
         |e|Error::UnexpectedResponse(format!("Unable to parse JSON: {:?}", e))
         )?;
@@ -111,8 +113,14 @@ fn handle_packet(
         let mut ptr = seq_store.write().unwrap();
         *ptr = Some(s);
     }
-    println!("packet: {:?}", packet);
+    // println!("packet: {:?}", packet);
     match packet.op {
+        0 => {
+            if let Some(t) = packet.t {
+                handle_event(&t, packet.d, listener);
+            }
+            Ok(())
+        },
         10 => {
             send_packet(sink, &Packet {
                 op: 2,
@@ -149,6 +157,21 @@ fn handle_packet(
         op => {
             eprintln!("Unexpected opcode: {}", op);
             Ok(())
+        }
+    }
+}
+
+fn handle_event<F: Fn(Event) -> ()>(t: &str, d: serde_json::Value, listener: &F) {
+    match t {
+        "READY" => {
+            listener(Event::Ready(events::ReadyData {
+                guilds: &d["guilds"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>(),
+                session_id: d["session_id"].as_str().unwrap(),
+                user: serde_json::from_str(&serde_json::to_string(&d["user"]).unwrap()).unwrap()
+            }));
+        },
+        _ => {
+            eprintln!("Unrecognized event type: {}", t);
         }
     }
 }
