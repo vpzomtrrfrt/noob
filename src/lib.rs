@@ -6,6 +6,7 @@ extern crate hyper_tls;
 extern crate futures;
 extern crate tokio_core;
 extern crate websocket;
+extern crate tokio_timer;
 
 macro_rules! fut_try(
     ($e:expr) => (match $e
