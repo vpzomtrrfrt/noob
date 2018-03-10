@@ -2,6 +2,10 @@
 name = "noob"
 version = "0.2.0"
 authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
+description = "A WIP futures-based Discord bot library"
+license = "AGPL-3.0-or-later"
+keywords = ["tokio", "discord", "futures"]
+repository = "https://github.com/vpzomtrrfrt/noob"
 
 [dependencies]
 futures = "0.1.18"
