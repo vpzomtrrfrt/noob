@@ -3,6 +3,7 @@ extern crate native_tls;
 use hyper;
 use websocket;
 use tokio_timer;
+use serde_json;
 
 quick_error! {
     #[derive(Debug)]
@@ -17,6 +18,9 @@ quick_error! {
             from()
         }
         Timer(e: tokio_timer::TimerError) {
+            from()
+        }
+        JSON(e: serde_json::Error) {
             from()
         }
         AuthenticationFailed {}

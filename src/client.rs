@@ -19,7 +19,12 @@ use futures::Stream;
 
 type WebSocket = websocket::client::async::Client<Box<websocket::stream::async::Stream + Send>>;
 
-pub fn run_bot<F: 'static + Fn(Event) -> ()>(
+pub struct Client {
+    token: String,
+    http: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>
+}
+
+pub fn run_bot<F: 'static + Fn(Event, &Client) -> ()>(
     handle: &tokio_core::reactor::Handle,
     token: &str,
     listener: F
@@ -31,6 +36,10 @@ pub fn run_bot<F: 'static + Fn(Event) -> ()>(
                 hyper_tls::HttpsConnector::new(1, &handle).map_err(|e|e.into())
                 ))
         .build(&handle);
+    let client = Client {
+        token: token.clone(),
+        http
+    };
     let mut request = hyper::Request::new(
         hyper::Method::Get,
         box_fut_try!(
@@ -38,7 +47,7 @@ pub fn run_bot<F: 'static + Fn(Event) -> ()>(
             .map_err(|e| Error::HTTP(e.into()))
             ));
     request.headers_mut().set(hyper::header::Authorization(token.to_owned()));
-    Box::new(http.request(request)
+    Box::new(client.http.request(request)
              .map_err(|e| e.into())
              .and_then(|response| {
                  let status = response.status();
@@ -72,7 +81,7 @@ pub fn run_bot<F: 'static + Fn(Event) -> ()>(
                                   .for_each(move |message| {
                                       match message {
                                           websocket::message::OwnedMessage::Text(t) => {
-                                              match handle_packet(&t, &token, &sink, &handle, &seq_store, &listener) {
+                                              match handle_packet(&t, &token, &sink, &handle, &seq_store, &client, &listener) {
                                                   Ok(_) => {},
                                                   Err(e) => eprintln!("Error handling packet: {:?}", e)
                                               }
@@ -99,12 +108,13 @@ struct Packet {
     t: Option<String>
 }
 
-fn handle_packet<F: Fn(Event) -> ()>(
+fn handle_packet<F: Fn(Event, &Client) -> ()>(
     text: &str,
     token: &str,
     sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
     handle: &tokio_core::reactor::Handle,
     seq_store: &std::sync::Arc<std::sync::RwLock<Option<u64>>>,
+    client: &Client,
     listener: &F) -> Result<(), Error> {
     let packet: Packet = serde_json::from_str(text).map_err(
         |e|Error::UnexpectedResponse(format!("Unable to parse JSON: {:?}", e))
@@ -117,7 +127,7 @@ fn handle_packet<F: Fn(Event) -> ()>(
     match packet.op {
         0 => {
             if let Some(t) = packet.t {
-                handle_event(&t, packet.d, listener);
+                handle_event(&t, packet.d, client, listener);
             }
             Ok(())
         },
@@ -154,6 +164,11 @@ fn handle_packet<F: Fn(Event) -> ()>(
                 }).map_err(|e|panic!(e)));
             Ok(())
         },
+        11 => {
+            // heartbeat ack
+            // TODO actually do something with this
+            Ok(())
+        },
         op => {
             eprintln!("Unexpected opcode: {}", op);
             Ok(())
@@ -161,14 +176,17 @@ fn handle_packet<F: Fn(Event) -> ()>(
     }
 }
 
-fn handle_event<F: Fn(Event) -> ()>(t: &str, d: serde_json::Value, listener: &F) {
+fn handle_event<F: Fn(Event, &Client) -> ()>(t: &str, d: serde_json::Value, client: &Client, listener: &F) {
     match t {
         "READY" => {
             listener(Event::Ready(events::ReadyData {
                 guilds: &d["guilds"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>(),
                 session_id: d["session_id"].as_str().unwrap(),
                 user: serde_json::from_str(&serde_json::to_string(&d["user"]).unwrap()).unwrap()
-            }));
+            }), client);
+        },
+        "MESSAGE_CREATE" => {
+            listener(Event::MessageCreate(serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap()), client);
         },
         _ => {
             eprintln!("Unrecognized event type: {}", t);
@@ -182,4 +200,63 @@ fn send_packet(
 {
     sink.unbounded_send(websocket::OwnedMessage::Text(serde_json::to_string(packet).map_err(|e|Error::UnexpectedResponse(format!("Unable to serialize packet: {:?}", e)))?))
         .map_err(|e|Error::InternalError(format!("mpsc failure3: {:?}", e)))
+}
+
+impl Client {
+    pub fn create_message(&self, content: &str) -> MessageBuilder {
+        MessageBuilder::new(self, content)
+    }
+    fn get_auth_header(&self) -> hyper::header::Authorization<String> {
+        hyper::header::Authorization(format!("Bot {}", self.token))
+    }
+}
+
+#[must_use]
+pub struct MessageBuilder<'a> {
+    client: &'a Client,
+    content: String
+}
+
+impl<'a> MessageBuilder<'a> {
+    fn new(client: &'a Client, content: &str) -> Self {
+        MessageBuilder {
+            client,
+            content: content.to_owned()
+        }
+    }
+    pub fn send(&self, channel: events::Snowflake) -> Box<Future<Item=(),Error=Error>> {
+        let mut request = hyper::Request::new(
+            hyper::Method::Post,
+            box_fut_try!(
+                hyper::Uri::from_str(&format!("https://discordapp.com/api/v6/channels/{}/messages", channel))
+                .map_err(|e| Error::HTTP(e.into()))));
+        request.headers_mut().set(self.client.get_auth_header());
+        request.headers_mut().set(hyper::header::ContentType::json());
+        let body = box_fut_try!(serde_json::to_string(&json!({
+            "content": self.content,
+            "channel_id": channel
+        })).map_err(|e|e.into()));
+        request.headers_mut().set(hyper::header::ContentLength(body.len() as u64));
+        request.set_body(body);
+        Box::new(self.client.http.request(request)
+                 .map_err(|e| e.into())
+                 .and_then(|response| -> Box<Future<Item=(),Error=Error>> {
+                     let status = response.status();
+                     if status == hyper::StatusCode::Ok {
+                         Box::new(futures::future::ok(()))
+                     }
+                     else {
+                         Box::new(response.body().concat2()
+                                  .map_err(|e|e.into())
+                             .and_then(|body| 
+                                       Err(Error::UnexpectedResponse(
+                                               format!("Message sending failed: {}",
+                                                       String::from_utf8(body.to_vec())
+                                                       .map_err(|e| Error::UnexpectedResponse(
+                                                               "Failed to decode error message"
+                                                               .to_owned()))?))))
+                             .map_err(|e|e.into()))
+                     }
+                 }))
+    }
 }

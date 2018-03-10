@@ -11,7 +11,7 @@ fn main() {
         &handle.clone(),
         &std::env::var("DISCORD_TOKEN")
         .expect("Missing DISCORD_TOKEN"),
-        |evt| {
+        |evt, _client| {
             println!("event: {:?}", evt);
         }
         )
