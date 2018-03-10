@@ -2,6 +2,7 @@ extern crate native_tls;
 
 use hyper;
 use websocket;
+use tokio_timer;
 
 quick_error! {
     #[derive(Debug)]
@@ -13,6 +14,9 @@ quick_error! {
             from()
         }
         Websocket(e: websocket::WebSocketError) {
+            from()
+        }
+        Timer(e: tokio_timer::TimerError) {
             from()
         }
         AuthenticationFailed {}

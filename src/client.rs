@@ -5,6 +5,7 @@ use hyper_tls;
 use serde_json;
 use websocket;
 use std;
+use tokio_timer;
 
 use events::Event;
 use error::Error;
@@ -63,12 +64,14 @@ pub fn run_bot<F: Fn(Event) -> ()>(
                               use futures::Sink;
                               let (sink, recv) = futures::sync::mpsc::unbounded::<websocket::OwnedMessage>();
                               let (ws_sink, ws_stream) = socket.split();
+                              let seq_store = std::sync::Arc::new(
+                                  std::sync::RwLock::new(None));
                               let input = ws_stream.map_err(|e|e.into())
                                   .for_each(move |message| {
                                       println!("message: {:?}", message);
                                       match message {
                                           websocket::message::OwnedMessage::Text(t) => {
-                                              match handle_packet(&t, &token, &sink, &handle) {
+                                              match handle_packet(&t, &token, &sink, &handle, &seq_store) {
                                                   Ok(_) => {},
                                                   Err(e) => eprintln!("Error handling packet: {:?}", e)
                                               }
@@ -99,10 +102,15 @@ fn handle_packet(
     text: &str,
     token: &str,
     sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
-    handle: &tokio_core::reactor::Handle) -> Result<(), Error> {
+    handle: &tokio_core::reactor::Handle,
+    seq_store: &std::sync::Arc<std::sync::RwLock<Option<u64>>>) -> Result<(), Error> {
     let packet: Packet = serde_json::from_str(text).map_err(
         |e|Error::UnexpectedResponse(format!("Unable to parse JSON: {:?}", e))
         )?;
+    if let Some(s) = packet.s {
+        let mut ptr = seq_store.write().unwrap();
+        *ptr = Some(s);
+    }
     println!("packet: {:?}", packet);
     match packet.op {
         10 => {
@@ -119,7 +127,24 @@ fn handle_packet(
                     },
                     "compress": false
                 })
-            })
+            })?;
+            let seq_store = seq_store.clone();
+            let sink = sink.clone();
+            handle.spawn(tokio_timer::Timer::default().interval(std::time::Duration::from_millis(packet.d["heartbeat_interval"].as_u64().ok_or_else(||Error::UnexpectedResponse("Unable to parse heartbeat interval".to_owned()))?))
+                .for_each(move |_| {
+                    let s = {
+                        let ptr = seq_store.read().unwrap();
+                        *ptr
+                    };
+                    send_packet(&sink, &Packet {
+                        op: 1,
+                        s: None,
+                        t: None,
+                        d: json!(s)
+                    }).unwrap();
+                    Ok(())
+                }).map_err(|e|panic!(e)));
+            Ok(())
         },
         op => {
             eprintln!("Unexpected opcode: {}", op);
@@ -132,6 +157,6 @@ fn send_packet(
     sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
     packet: &Packet) -> Result<(), Error>
 {
-    sink.send(websocket::OwnedMessage::Text(serde_json::to_string(packet).map_err(|e|Error::UnexpectedResponse(format!("Unable to serialize packet: {:?}", e)))?))
+    sink.unbounded_send(websocket::OwnedMessage::Text(serde_json::to_string(packet).map_err(|e|Error::UnexpectedResponse(format!("Unable to serialize packet: {:?}", e)))?))
         .map_err(|e|Error::InternalError(format!("mpsc failure3: {:?}", e)))
 }
