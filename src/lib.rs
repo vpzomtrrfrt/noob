@@ -8,14 +8,6 @@ extern crate tokio_core;
 extern crate websocket;
 extern crate tokio_timer;
 
-macro_rules! fut_try(
-    ($e:expr) => (match $e
-                  {
-                      Ok(e) => e,
-                      Err(err) => return futures::future::err(err)
-                  })
-    );
-
 macro_rules! box_fut_try(
     ($e:expr) => (match $e
                   {

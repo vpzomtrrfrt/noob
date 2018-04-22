@@ -12,13 +12,10 @@ pub use embed::*;
 
 use events::Event;
 use error::Error;
-use futures::future;
 use futures::future::Future;
 
 use std::str::FromStr;
 use futures::Stream;
-
-type WebSocket = websocket::client::async::Client<Box<websocket::stream::async::Stream + Send>>;
 
 pub struct Client {
     token: String,
@@ -128,7 +125,7 @@ fn handle_packet<F: Fn(Event, &Client) -> ()>(
     match packet.op {
         0 => {
             if let Some(t) = packet.t {
-                handle_event(&t, packet.d, client, listener);
+                handle_event(&t, &packet.d, client, listener);
             }
             Ok(())
         },
@@ -177,7 +174,7 @@ fn handle_packet<F: Fn(Event, &Client) -> ()>(
     }
 }
 
-fn handle_event<F: Fn(Event, &Client) -> ()>(t: &str, d: serde_json::Value, client: &Client, listener: &F) {
+fn handle_event<F: Fn(Event, &Client) -> ()>(t: &str, d: &serde_json::Value, client: &Client, listener: &F) {
     match t {
         "READY" => {
             listener(Event::Ready(events::ReadyData {
@@ -238,17 +235,17 @@ impl<'a> MessageBuilder<'a> {
         self.embed = Some(embed);
         self
     }
-    pub fn send(&self, channel: events::Snowflake) -> Box<Future<Item=(),Error=Error>> {
+    pub fn send(&self, channel_id: &str) -> Box<Future<Item=(),Error=Error>> {
         let mut request = hyper::Request::new(
             hyper::Method::Post,
             box_fut_try!(
-                hyper::Uri::from_str(&format!("https://discordapp.com/api/v6/channels/{}/messages", channel))
+                hyper::Uri::from_str(&format!("https://discordapp.com/api/v6/channels/{}/messages", channel_id))
                 .map_err(|e| Error::HTTP(e.into()))));
         request.headers_mut().set(self.client.get_auth_header());
         request.headers_mut().set(hyper::header::ContentType::json());
         let body = box_fut_try!(serde_json::to_string(&MessageCreationObject {
             content: &self.content,
-            channel_id: &channel,
+            channel_id,
             embed: &self.embed
         }).map_err(|e|e.into()));
         request.headers_mut().set(hyper::header::ContentLength(body.len() as u64));
@@ -267,10 +264,10 @@ impl<'a> MessageBuilder<'a> {
                                        Err(Error::UnexpectedResponse(
                                                format!("Message sending failed: {}",
                                                        String::from_utf8(body.to_vec())
-                                                       .map_err(|e| Error::UnexpectedResponse(
-                                                               "Failed to decode error message"
-                                                               .to_owned()))?))))
-                             .map_err(|e|e.into()))
+                                                       .map_err(|e| Error::UnexpectedResponse(format!(
+                                                               "Failed to decode error message: {:?}",
+                                                               e
+                                                               )))?)))))
                      }
                  }))
     }

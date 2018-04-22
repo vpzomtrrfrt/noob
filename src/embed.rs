@@ -1,4 +1,4 @@
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct Embed {
     title: Option<String>,
     description: Option<String>,
@@ -69,7 +69,7 @@ impl Embed {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct EmbedAuthor {
     name: Option<String>,
     url: Option<String>,
