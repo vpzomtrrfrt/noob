@@ -16,7 +16,7 @@ fn main() {
             if let noob::events::Event::MessageCreate(msg) = evt {
                 println!("msg! {}", msg.content);
                 if msg.content == "ping" {
-                    handle.spawn(client.create_message("pong")
+                    handle.spawn(client.create_message("pong".to_owned())
                         .send(msg.channel_id)
                         .map_err(|e| {
                             eprintln!("{:?}", e);
