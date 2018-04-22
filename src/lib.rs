@@ -27,3 +27,4 @@ macro_rules! box_fut_try(
 pub mod client;
 pub mod events;
 pub mod error;
+mod embed;

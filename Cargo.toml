@@ -1,6 +1,6 @@
 [package]
 name = "noob"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
 description = "A WIP futures-based Discord bot library"
 license = "AGPL-3.0"

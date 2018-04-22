@@ -8,6 +8,7 @@ use std;
 use tokio_timer;
 
 use events;
+pub use embed::*;
 
 use events::Event;
 use error::Error;
@@ -203,7 +204,7 @@ fn send_packet(
 }
 
 impl Client {
-    pub fn create_message(&self, content: &str) -> MessageBuilder {
+    pub fn create_message(&self, content: String) -> MessageBuilder {
         MessageBuilder::new(self, content)
     }
     fn get_auth_header(&self) -> hyper::header::Authorization<String> {
@@ -214,15 +215,28 @@ impl Client {
 #[must_use]
 pub struct MessageBuilder<'a> {
     client: &'a Client,
-    content: String
+    content: String,
+    embed: Option<Embed>
+}
+
+#[derive(Serialize)]
+struct MessageCreationObject<'a> {
+    content: &'a str,
+    channel_id: &'a str,
+    embed: &'a Option<Embed>
 }
 
 impl<'a> MessageBuilder<'a> {
-    fn new(client: &'a Client, content: &str) -> Self {
+    fn new(client: &'a Client, content: String) -> Self {
         MessageBuilder {
             client,
-            content: content.to_owned()
+            content,
+            embed: None
         }
+    }
+    pub fn set_embed(&mut self, embed: Embed) -> &mut Self {
+        self.embed = Some(embed);
+        self
     }
     pub fn send(&self, channel: events::Snowflake) -> Box<Future<Item=(),Error=Error>> {
         let mut request = hyper::Request::new(
@@ -232,10 +246,11 @@ impl<'a> MessageBuilder<'a> {
                 .map_err(|e| Error::HTTP(e.into()))));
         request.headers_mut().set(self.client.get_auth_header());
         request.headers_mut().set(hyper::header::ContentType::json());
-        let body = box_fut_try!(serde_json::to_string(&json!({
-            "content": self.content,
-            "channel_id": channel
-        })).map_err(|e|e.into()));
+        let body = box_fut_try!(serde_json::to_string(&MessageCreationObject {
+            content: &self.content,
+            channel_id: &channel,
+            embed: &self.embed
+        }).map_err(|e|e.into()));
         request.headers_mut().set(hyper::header::ContentLength(body.len() as u64));
         request.set_body(body);
         Box::new(self.client.http.request(request)
