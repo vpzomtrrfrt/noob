@@ -12,8 +12,9 @@ pub use embed::*;
 
 use events::Event;
 use error::Error;
-use futures::future::Future;
 
+use std::sync::Arc;
+use futures::future::Future;
 use std::str::FromStr;
 use futures::Stream;
 
@@ -22,7 +23,7 @@ pub struct Client {
     http: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>
 }
 
-pub fn run_bot<F: 'static + Fn(Event, &Client) -> ()>(
+pub fn run_bot<F: 'static + Fn(Event, &Arc<Client>) -> ()>(
     handle: &tokio_core::reactor::Handle,
     token: &str,
     listener: F
@@ -34,10 +35,10 @@ pub fn run_bot<F: 'static + Fn(Event, &Client) -> ()>(
                 hyper_tls::HttpsConnector::new(1, &handle).map_err(|e|e.into())
                 ))
         .build(&handle);
-    let client = Client {
+    let client = Arc::new(Client {
         token: token.clone(),
         http
-    };
+    });
     let mut request = hyper::Request::new(
         hyper::Method::Get,
         box_fut_try!(
@@ -106,13 +107,13 @@ struct Packet {
     t: Option<String>
 }
 
-fn handle_packet<F: Fn(Event, &Client) -> ()>(
+fn handle_packet<F: Fn(Event, &Arc<Client>) -> ()>(
     text: &str,
     token: &str,
     sink: &futures::sync::mpsc::UnboundedSender<websocket::OwnedMessage>,
     handle: &tokio_core::reactor::Handle,
     seq_store: &std::sync::Arc<std::sync::RwLock<Option<u64>>>,
-    client: &Client,
+    client: &Arc<Client>,
     listener: &F) -> Result<(), Error> {
     let packet: Packet = serde_json::from_str(text).map_err(
         |e|Error::UnexpectedResponse(format!("Unable to parse JSON: {:?}", e))
@@ -174,7 +175,7 @@ fn handle_packet<F: Fn(Event, &Client) -> ()>(
     }
 }
 
-fn handle_event<F: Fn(Event, &Client) -> ()>(t: &str, d: &serde_json::Value, client: &Client, listener: &F) {
+fn handle_event<F: Fn(Event, &Arc<Client>) -> ()>(t: &str, d: &serde_json::Value, client: &Arc<Client>, listener: &F) {
     match t {
         "READY" => {
             listener(Event::Ready(events::ReadyData {
