@@ -2,13 +2,16 @@ use Error;
 use events;
 use events::Event;
 
+use std;
 use futures;
 use hyper;
 use hyper_tls;
 use serde_json;
 use websocket;
+use tokio;
 
 use futures::{Future, Sink, Stream};
+use tokio::executor::Executor;
 
 pub struct Client {
     http_client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
@@ -69,7 +72,7 @@ impl Client {
                 .and_then(move |(msg1, socket)| -> Box<Future<Item=_, Error=Error>> {
                     #[derive(Deserialize)]
                     struct Hello {
-                        pub heartbeat_interval: u32
+                        pub heartbeat_interval: u64
                     }
 
                     #[derive(Serialize)]
@@ -106,17 +109,33 @@ impl Client {
                             }
                         }).map_err(|e| Error::Other(format!("Failed to serialize identify message: {:?}", e))));
                         Box::new(socket.send(websocket::message::OwnedMessage::Text(identify)).map_err(|e| e.into())
-                                 .map(|socket| (socket, token)))
+                                 .map(|socket| (socket, token, payload.d)))
                     }
                     else {
                         Box::new(futures::future::err(Error::Other(format!("Unexpected first message: {:?}", msg1))))
                     }
                 })
-                .and_then(|(socket, token)| {
+                .and_then(|(socket, token, hello)| {
+                    let (sink, stream) = socket.split();
+                    let heartbeat_stream = tokio::timer::Interval::new(std::time::Instant::now(), std::time::Duration::from_millis(hello.heartbeat_interval));
+                    tokio::executor::DefaultExecutor::current()
+                        .spawn(Box::new(sink.send_all(heartbeat_stream
+                                               .map_err(|e| -> websocket::WebSocketError {
+                                                   panic!("Timer error: {:?}", e);
+                                               })
+                                               .map(|_| {
+                                                   websocket::message::OwnedMessage::Text(json!({
+                                                       "op": 1,
+                                                       "d": null
+                                                   }).to_string())
+                                               })).map(|_|()).map_err(|e| {
+                            eprintln!("Websocket error in heartbeat stream: {:?}", e);
+                        })))
+                    .map_err(|e| Error::Other(format!("Failed to spawn heartbeat stream: {:?}", e)))?;
                     Ok((Client {
                         http_client: http,
                         token,
-                    }, socket.map_err(|e| e.into()).filter_map(handle_packet)))
+                    }, stream.map_err(|e| e.into()).filter_map(handle_packet)))
                 }),
         )
     }
@@ -148,6 +167,10 @@ fn handle_packet(msg: websocket::message::OwnedMessage) -> Option<Event> {
                                 None
                             }
                         }
+                    },
+                    11 => {
+                        // heartbeat ACK
+                        // potentially useful, but ignored for now
                     },
                     op => {
                         eprintln!("Unrecognized packet op: {}", op);

@@ -17,6 +17,7 @@ serde_derive = "1.0.69"
 serde_json = "1.0.22"
 serde = "1.0.69"
 websocket = { git = "https://github.com/vpzomtrrfrt/rust-websocket", rev = "0baed6bc"}
+tokio = "0.1.7"
 
 [dev-dependencies]
 tokio-core = "0.1.17"
