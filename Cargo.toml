@@ -1,6 +1,6 @@
 [package]
 name = "noob"
-version = "0.4.0"
+version = "1.0.0"
 authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
 description = "A WIP futures-based Discord bot library"
 license = "AGPL-3.0"
@@ -8,14 +8,15 @@ keywords = ["tokio", "discord", "futures"]
 repository = "https://github.com/vpzomtrrfrt/noob"
 
 [dependencies]
-futures = "0.1.18"
-hyper = "0.11.22"
-websocket = "0.20.2"
-quick-error = "1.2.1"
-tokio-core = "0.1.12"
-hyper-tls = "0.1.2"
-native-tls = "0.1.5"
-serde_json = "1.0.10"
-serde_derive = "1.0.28"
-serde = "1.0.28"
-tokio-timer = "0.1.2"
+futures = "0.1.21"
+hyper = "0.12.5"
+hyper-tls = "0.3.0"
+try_future = "0.1.2"
+quick-error = "1.2.2"
+serde_derive = "1.0.69"
+serde_json = "1.0.22"
+serde = "1.0.69"
+websocket = { git = "https://github.com/vpzomtrrfrt/rust-websocket", rev = "0baed6bc"}
+
+[dev-dependencies]
+tokio-core = "0.1.17"

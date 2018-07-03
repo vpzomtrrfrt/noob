@@ -1,22 +1,22 @@
-#[macro_use] extern crate quick_error;
-#[macro_use] extern crate serde_derive;
-#[macro_use] extern crate serde_json;
 extern crate hyper;
 extern crate hyper_tls;
 extern crate futures;
-extern crate tokio_core;
 extern crate websocket;
-extern crate tokio_timer;
+extern crate serde_json;
+#[macro_use] extern crate serde_derive;
+#[macro_use] extern crate try_future;
+#[macro_use] extern crate quick_error;
 
-macro_rules! box_fut_try(
-    ($e:expr) => (match $e
-                  {
-                      Ok(e) => e,
-                      Err(err) => return Box::new(futures::future::err(err))
-                  })
-    );
-
-pub mod client;
+mod client;
+mod error;
 pub mod events;
-pub mod error;
-mod embed;
+
+pub use client::Client;
+pub use error::Error;
+pub use events::Event;
+
+#[derive(Deserialize, Serialize)]
+struct DiscordBasePayload<I> {
+    pub op: u8,
+    pub d: I
+}
