@@ -215,7 +215,17 @@ fn handle_packet(msg: websocket::message::OwnedMessage) -> Option<Event> {
 fn handle_event(t: &str, d: serde_json::Value) -> Option<Event> {
     match t {
         "READY" => {
-            Some(Event::Ready(events::ReadyData {}))
+            println!("{:?}", d);
+            let user = match serde_json::from_value(d["user"].clone()) {
+                Err(err) => {
+                    eprintln!("Failed to parse ready user: {:?}", err);
+                    return None;
+                },
+                Ok(x) => x
+            };
+            Some(Event::Ready(events::ReadyData {
+                user
+            }))
         },
         "MESSAGE_CREATE" => {
             match serde_json::from_value(d) {
