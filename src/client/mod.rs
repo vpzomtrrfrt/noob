@@ -192,6 +192,15 @@ fn handle_event(t: &str, d: serde_json::Value) -> Option<Event> {
         "READY" => {
             Some(Event::Ready(events::ReadyData {}))
         },
+        "MESSAGE_CREATE" => {
+            match serde_json::from_value(d) {
+                Err(err) => {
+                    eprintln!("Failed to parse message: {:?}", err);
+                    None
+                },
+                Ok(data) => Some(Event::MessageCreate(data))
+            }
+        },
         _ => {
             eprintln!("Unrecognized event type: {}", t);
             None
