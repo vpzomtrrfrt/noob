@@ -171,6 +171,7 @@ fn handle_packet(msg: websocket::message::OwnedMessage) -> Option<Event> {
                     11 => {
                         // heartbeat ACK
                         // potentially useful, but ignored for now
+                        None
                     },
                     op => {
                         eprintln!("Unrecognized packet op: {}", op);
