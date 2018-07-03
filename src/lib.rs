@@ -10,11 +10,13 @@ extern crate tokio;
 
 mod client;
 mod error;
+mod builder;
 pub mod events;
 
 pub use client::Client;
 pub use error::Error;
 pub use events::Event;
+pub use builder::MessageBuilder;
 
 #[derive(Deserialize, Serialize)]
 struct DiscordBasePayload<I> {

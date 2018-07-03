@@ -139,6 +139,31 @@ impl Client {
                 }),
         )
     }
+
+    pub fn send_message(&self, msg: &::MessageBuilder, channel: &str) -> Box<Future<Item=(), Error=Error>> {
+        let body = msg.to_request_body(channel);
+        let auth_value = format!("Bot {}", self.token);
+        let auth_value_ref: &str = &auth_value;
+        let req = try_future_box!(hyper::Request::post(format!("https://discordapp.com/api/v6/channels/{}/messages", channel))
+            .header(hyper::header::AUTHORIZATION, auth_value_ref)
+            .header(hyper::header::CONTENT_TYPE, "application/json")
+            .header(hyper::header::CONTENT_LENGTH, body.len())
+            .body(body.into())
+            .map_err(|e| Error::Other(format!("Failed to create request: {:?}", e))));
+
+        Box::new(self.http_client.request(req)
+                 .map_err(|e| e.into())
+                 .and_then(|resp| -> Box<Future<Item=(), Error=Error>> {
+                     match resp.status() {
+                         hyper::StatusCode::OK => Box::new(futures::future::ok(())),
+                         _ => {
+                             Box::new(resp.into_body().concat2()
+                                      .map_err(|e| e.into())
+                                      .and_then(|body| Err(Error::Other(format!("Message sending failed {}", String::from_utf8_lossy(&body.to_vec()))))))
+                         }
+                     }
+                 }))
+    }
 }
 
 fn handle_packet(msg: websocket::message::OwnedMessage) -> Option<Event> {
