@@ -19,7 +19,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn connect(token: &str) -> Box<Future<Item = (Client, impl Stream<Item=Event, Error=Error>), Error = Error>> {
+    pub fn connect(token: &str) -> Box<Future<Item = (Client, impl Stream<Item=Event, Error=Error>), Error = Error> + Send> {
         let http =
             hyper::Client::builder().build(try_future_box!(hyper_tls::HttpsConnector::new(1)));
 
@@ -35,7 +35,7 @@ impl Client {
         Box::new(
             http.request(gateway_req)
                 .map_err(|e| e.into())
-                .and_then(|resp| -> Box<Future<Item = hyper::Chunk, Error = Error>> {
+                .and_then(|resp| -> Box<Future<Item = hyper::Chunk, Error = Error> + Send> {
                     match resp.status() {
                         hyper::StatusCode::UNAUTHORIZED => {
                             Box::new(futures::future::err(Error::AuthenticationFailed))
@@ -49,7 +49,7 @@ impl Client {
                         )))),
                     }
                 })
-                .and_then(|body| -> Box<Future<Item=_, Error=Error>> {
+                .and_then(|body| -> Box<Future<Item=_, Error=Error> + Send> {
                     #[derive(Deserialize)]
                     struct GetGatewayResult<'a> {
                         url: &'a str,
@@ -69,7 +69,7 @@ impl Client {
                     socket.into_future()
                         .map_err(|(e, _)| e.into())
                 })
-                .and_then(move |(msg1, socket)| -> Box<Future<Item=_, Error=Error>> {
+                .and_then(move |(msg1, socket)| -> Box<Future<Item=_, Error=Error> + Send> {
                     #[derive(Deserialize)]
                     struct Hello {
                         pub heartbeat_interval: u64
@@ -140,8 +140,8 @@ impl Client {
         )
     }
 
-    pub fn send_message(&self, msg: &::MessageBuilder, channel: &str) -> Box<Future<Item=(), Error=Error>> {
-        let body = msg.to_request_body(channel);
+    pub fn send_message(&self, msg: &::MessageBuilder, channel: &str) -> Box<Future<Item=(), Error=Error> + Send> {
+        let body = try_future_box!(msg.to_request_body(channel));
         let auth_value = format!("Bot {}", self.token);
         let auth_value_ref: &str = &auth_value;
         let req = try_future_box!(hyper::Request::post(format!("https://discordapp.com/api/v6/channels/{}/messages", channel))
@@ -153,7 +153,7 @@ impl Client {
 
         Box::new(self.http_client.request(req)
                  .map_err(|e| e.into())
-                 .and_then(|resp| -> Box<Future<Item=(), Error=Error>> {
+                 .and_then(|resp| -> Box<Future<Item=(), Error=Error> + Send> {
                      match resp.status() {
                          hyper::StatusCode::OK => Box::new(futures::future::ok(())),
                          _ => {
