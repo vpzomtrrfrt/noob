@@ -19,7 +19,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn connect(token: &str) -> Box<Future<Item = (Client, impl Stream<Item=Event, Error=Error>), Error = Error> + Send> {
+    pub fn connect(token: &str) -> Box<Future<Item = (Client, Stream<Item=Event, Error=Error>), Error = Error> + Send> {
         let http =
             hyper::Client::builder().build(try_future_box!(hyper_tls::HttpsConnector::new(1)));
 
