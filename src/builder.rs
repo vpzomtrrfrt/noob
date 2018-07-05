@@ -4,14 +4,14 @@ use serde_json;
 
 pub struct MessageBuilder<'a> {
     content: &'a str,
-    embed: Option<&'a EmbedBuilder<'a>>
+    embed: Option<&'a EmbedBuilder<'a>>,
 }
 
 impl<'a> MessageBuilder<'a> {
     pub fn new(content: &'a str) -> Self {
         Self {
             content,
-            embed: None
+            embed: None,
         }
     }
 
@@ -29,15 +29,17 @@ impl<'a> MessageBuilder<'a> {
         struct MessageCreateBody<'a> {
             content: &'a str,
             channel: &'a str,
-            embed: Option<&'a EmbedBuilder<'a>>
+            embed: Option<&'a EmbedBuilder<'a>>,
         }
         serde_json::to_string(&MessageCreateBody {
             content: self.content,
             channel,
-            embed: self.embed
-        })
-        .map_err(|e| {
-            Error::Other(format!("Failed to serialize message creation body: {:?}", e))
+            embed: self.embed,
+        }).map_err(|e| {
+            Error::Other(format!(
+                "Failed to serialize message creation body: {:?}",
+                e
+            ))
         })
     }
 }
@@ -53,7 +55,7 @@ pub struct EmbedBuilder<'a> {
     image: Option<&'a str>,
     thumbnail: Option<&'a str>,
     author: Option<&'a EmbedAuthor<'a>>,
-    fields: Vec<&'a EmbedField<'a>>
+    fields: Vec<&'a EmbedField<'a>>,
 }
 
 impl<'a> EmbedBuilder<'a> {
@@ -129,7 +131,7 @@ impl<'a> EmbedBuilder<'a> {
 pub struct EmbedAuthor<'a> {
     pub name: Option<&'a str>,
     pub url: Option<&'a str>,
-    pub icon_url: Option<&'a str>
+    pub icon_url: Option<&'a str>,
 }
 
 impl<'a> EmbedAuthor<'a> {
@@ -141,20 +143,20 @@ impl<'a> EmbedAuthor<'a> {
 #[derive(Serialize, Debug)]
 pub struct EmbedFooter<'a> {
     text: &'a str,
-    icon_url: Option<&'a str>
+    icon_url: Option<&'a str>,
 }
 
 impl<'a> EmbedFooter<'a> {
     pub fn new(text: &'a str) -> Self {
         EmbedFooter {
             text,
-            icon_url: None
+            icon_url: None,
         }
     }
     pub fn new_with_icon(text: &'a str, icon_url: &'a str) -> Self {
         EmbedFooter {
             text,
-            icon_url: Some(icon_url)
+            icon_url: Some(icon_url),
         }
     }
 }
@@ -163,7 +165,7 @@ impl<'a> EmbedFooter<'a> {
 pub struct EmbedField<'a> {
     pub name: &'a str,
     pub value: &'a str,
-    pub inline: bool
+    pub inline: bool,
 }
 
 impl<'a> EmbedField<'a> {
@@ -175,7 +177,9 @@ impl<'a> EmbedField<'a> {
     }
     fn new_internal(name: &'a str, value: &'a str, inline: bool) -> Self {
         EmbedField {
-            name, value, inline
+            name,
+            value,
+            inline,
         }
     }
 }
