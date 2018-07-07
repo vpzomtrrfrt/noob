@@ -1,30 +1,30 @@
-use websocket;
 use futures;
 use serde_json;
-use tokio;
 use std;
+use tokio;
+use websocket;
 
-use {Error, Event};
 use events;
+use {Error, Event};
 
 use futures::{Future, Sink, Stream};
-use tokio::executor::Executor;
 use std::sync::{Arc, Mutex};
+use tokio::executor::Executor;
 
 pub struct GatewayConnection {
     token: String,
     url: websocket::client::builder::Url,
-    state: ConnectionState
+    state: ConnectionState,
 }
 
 enum ConnectionState {
     Pending(Box<Future<Item = ConnectionState, Error = Error> + Send>),
-    Connected(Box<Stream<Item = Event, Error = Error> + Send>)
+    Connected(Box<Stream<Item = Event, Error = Error> + Send>),
 }
 
 struct ReconnectInfo {
     session_id: String,
-    last_event: u64
+    last_event: u64,
 }
 
 impl GatewayConnection {
@@ -36,14 +36,19 @@ impl GatewayConnection {
         }
     }
 
-    fn connect(token: &str, url: &websocket::client::builder::Url, resume_info: Option<ReconnectInfo>) -> Box<Future<Item = ConnectionState, Error = Error> + Send> {
+    fn connect(
+        token: &str,
+        url: &websocket::client::builder::Url,
+        resume_info: Option<ReconnectInfo>,
+    ) -> Box<Future<Item = ConnectionState, Error = Error> + Send> {
         let token = token.to_owned();
-        Box::new(websocket::ClientBuilder::from_url(url)
-                 .async_connect(None, &Default::default())
-                 .map_err(|e| e.into())
-                 .and_then(|(socket, _)| socket.into_future()
-                           .map_err(|(e, _)| e.into()))
-                 .and_then(move |(msg1, socket)| -> Box<Future<Item=_, Error=_> + Send> {
+        Box::new(
+            websocket::ClientBuilder::from_url(url)
+                .async_connect(None, &Default::default())
+                .map_err(|e| e.into())
+                .and_then(|(socket, _)| socket.into_future().map_err(|(e, _)| e.into()))
+                .and_then(
+                    move |(msg1, socket)| -> Box<Future<Item = _, Error = _> + Send> {
                         #[derive(Deserialize)]
                         struct Hello {
                             pub heartbeat_interval: u64,
@@ -60,7 +65,7 @@ impl GatewayConnection {
                         struct Resume<'a> {
                             token: &'a str,
                             session_id: &'a str,
-                            seq: u64
+                            seq: u64,
                         }
 
                         #[derive(Serialize)]
@@ -79,16 +84,14 @@ impl GatewayConnection {
                                     Error::Other(format!("Failed to parse hello message: {:?}", e))
                                 }));
                             let first_packet = match resume_info {
-                                Some(info) => {
-                                    serde_json::to_string(&::DiscordBasePayload {
-                                        op: 6,
-                                        d: Resume {
-                                            token: &token,
-                                            session_id: &info.session_id,
-                                            seq: info.last_event
-                                        }
-                                    })
-                                },
+                                Some(info) => serde_json::to_string(&::DiscordBasePayload {
+                                    op: 6,
+                                    d: Resume {
+                                        token: &token,
+                                        session_id: &info.session_id,
+                                        seq: info.last_event,
+                                    },
+                                }),
                                 None => {
                                     serde_json::to_string(&::DiscordBasePayload {
                                         op: 2,
@@ -104,14 +107,11 @@ impl GatewayConnection {
                                     })
                                 }
                             };
-                            let first_packet = try_future_box!(
-                                first_packet.map_err(|e| {
-                                    Error::Other(format!(
-                                        "Failed to serialize identify message: {:?}",
-                                        e
-                                    ))
-                                })
-                            );
+                            let first_packet =
+                                try_future_box!(first_packet.map_err(|e| Error::Other(format!(
+                                    "Failed to serialize identify message: {:?}",
+                                    e
+                                ))));
                             Box::new(
                                 socket
                                     .send(websocket::message::OwnedMessage::Text(first_packet))
@@ -127,7 +127,8 @@ impl GatewayConnection {
                     },
                 )
                 .and_then(|(socket, hello)| {
-                    let session_info: Arc<Mutex<Option<ReconnectInfo>>> = Arc::new(Mutex::new(None));
+                    let session_info: Arc<Mutex<Option<ReconnectInfo>>> =
+                        Arc::new(Mutex::new(None));
                     let (sink, stream) = socket.split();
                     let heartbeat_stream = tokio::timer::Interval::new(
                         std::time::Instant::now(),
@@ -162,56 +163,65 @@ impl GatewayConnection {
                         .map_err(|e| {
                             Error::Other(format!("Failed to spawn heartbeat stream: {:?}", e))
                         })?;
-                    Ok(
-                        ConnectionState::Connected(Box::new(stream.map_err(|e| e.into()).filter_map(move |packet| handle_packet(&session_info, packet)))),
-                    )
-                }))
+                    Ok(ConnectionState::Connected(Box::new(
+                        stream
+                            .map_err(|e| e.into())
+                            .filter_map(move |packet| handle_packet(&session_info, packet)),
+                    )))
+                }),
+        )
     }
 }
 
 impl Stream for GatewayConnection {
     type Item = Event;
     type Error = Error;
-    
+
     fn poll(&mut self) -> futures::Poll<Option<Self::Item>, Error> {
         enum ConnPollRes {
             NewState(ConnectionState),
-            Result(futures::Poll<Option<Event>, Error>)
+            Result(futures::Poll<Option<Event>, Error>),
         }
-        let res = match self.state {
-            ConnectionState::Pending(ref mut fut) => {
-                let res = fut.poll();
-                match res {
-                    Ok(futures::Async::Ready(new_state)) => {
-                        ConnPollRes::NewState(new_state)
-                    },
-                    Ok(futures::Async::NotReady) => ConnPollRes::Result(Ok(futures::Async::NotReady)),
-                    Err(err) => ConnPollRes::Result(Err(err))
+        let res =
+            match self.state {
+                ConnectionState::Pending(ref mut fut) => {
+                    let res = fut.poll();
+                    match res {
+                        Ok(futures::Async::Ready(new_state)) => ConnPollRes::NewState(new_state),
+                        Ok(futures::Async::NotReady) => {
+                            ConnPollRes::Result(Ok(futures::Async::NotReady))
+                        }
+                        Err(err) => ConnPollRes::Result(Err(err)),
+                    }
                 }
-            },
-            ConnectionState::Connected(ref mut stream) => {
-                let res = stream.poll();
-                match res {
-                    Ok(futures::Async::Ready(None)) => {
-                        // stream ended, reconnect
-                        println!("reconnecting");
-                        ConnPollRes::NewState(ConnectionState::Pending(GatewayConnection::connect(&self.token, &self.url, None)))
-                    },
-                    other => ConnPollRes::Result(other)
+                ConnectionState::Connected(ref mut stream) => {
+                    let res = stream.poll();
+                    match res {
+                        Ok(futures::Async::Ready(None)) => {
+                            // stream ended, reconnect
+                            println!("reconnecting");
+                            ConnPollRes::NewState(ConnectionState::Pending(
+                                GatewayConnection::connect(&self.token, &self.url, None),
+                            ))
+                        }
+                        other => ConnPollRes::Result(other),
+                    }
                 }
-            }
-        };
+            };
         match res {
             ConnPollRes::NewState(state) => {
                 self.state = state;
                 self.poll()
-            },
-            ConnPollRes::Result(res) => res
+            }
+            ConnPollRes::Result(res) => res,
         }
     }
 }
 
-fn handle_packet(session_info: &Arc<Mutex<Option<ReconnectInfo>>>, msg: websocket::message::OwnedMessage) -> Option<Event> {
+fn handle_packet(
+    session_info: &Arc<Mutex<Option<ReconnectInfo>>>,
+    msg: websocket::message::OwnedMessage,
+) -> Option<Event> {
     if let websocket::message::OwnedMessage::Text(text) = msg {
         #[derive(Deserialize)]
         struct RecvPayload<'a> {
@@ -240,7 +250,7 @@ fn handle_packet(session_info: &Arc<Mutex<Option<ReconnectInfo>>>, msg: websocke
                                 None
                             }
                         }
-                    },
+                    }
                     11 => {
                         // heartbeat ACK
                         // potentially useful, but ignored for now

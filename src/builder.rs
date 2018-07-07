@@ -2,12 +2,14 @@ use Error;
 
 use serde_json;
 
+/// Object used to construct outgoing messages
 pub struct MessageBuilder<'a> {
     content: &'a str,
     embed: Option<&'a EmbedBuilder<'a>>,
 }
 
 impl<'a> MessageBuilder<'a> {
+    /// Create a new MessageBuilder
     pub fn new(content: &'a str) -> Self {
         Self {
             content,
@@ -15,15 +17,18 @@ impl<'a> MessageBuilder<'a> {
         }
     }
 
+    /// Set an embed for this message
     pub fn set_embed(&mut self, embed: &'a EmbedBuilder<'a>) {
         self.embed = Some(embed);
     }
 
+    /// Set an embed for this message
     pub fn with_embed(mut self, embed: &'a EmbedBuilder<'a>) -> Self {
         self.set_embed(embed);
         self
     }
 
+    #[doc(hidden)]
     pub fn to_request_body(&self, channel: &str) -> Result<String, Error> {
         #[derive(Serialize, Debug)]
         struct MessageCreateBody<'a> {
@@ -45,6 +50,7 @@ impl<'a> MessageBuilder<'a> {
 }
 
 #[derive(Default, Serialize, Debug)]
+/// Builder for a message embed
 pub struct EmbedBuilder<'a> {
     title: Option<&'a str>,
     description: Option<&'a str>,
@@ -58,6 +64,7 @@ pub struct EmbedBuilder<'a> {
     fields: Vec<&'a EmbedField<'a>>,
 }
 
+#[allow(missing_docs)]
 impl<'a> EmbedBuilder<'a> {
     pub fn new() -> Self {
         Default::default()
@@ -128,31 +135,39 @@ impl<'a> EmbedBuilder<'a> {
 }
 
 #[derive(Default, Serialize, Debug)]
+/// Representation of an embed author
 pub struct EmbedAuthor<'a> {
+    /// Name of author
     pub name: Option<&'a str>,
+    /// URL of author
     pub url: Option<&'a str>,
+    /// URL of author icon
     pub icon_url: Option<&'a str>,
 }
 
 impl<'a> EmbedAuthor<'a> {
+    /// Create an empty embed author
     pub fn new() -> Self {
         Default::default()
     }
 }
 
 #[derive(Serialize, Debug)]
+/// Representation of an embed footer
 pub struct EmbedFooter<'a> {
     text: &'a str,
     icon_url: Option<&'a str>,
 }
 
 impl<'a> EmbedFooter<'a> {
+    /// Create a text-only footer
     pub fn new(text: &'a str) -> Self {
         EmbedFooter {
             text,
             icon_url: None,
         }
     }
+    /// Create a footer with an icon
     pub fn new_with_icon(text: &'a str, icon_url: &'a str) -> Self {
         EmbedFooter {
             text,
@@ -162,16 +177,19 @@ impl<'a> EmbedFooter<'a> {
 }
 
 #[derive(Serialize, Debug)]
+/// Representation of an [embed field](https://discordapp.com/developers/docs/resources/channel#embed-object-embed-field-structure)
 pub struct EmbedField<'a> {
-    pub name: &'a str,
-    pub value: &'a str,
-    pub inline: bool,
+    name: &'a str,
+    value: &'a str,
+    inline: bool,
 }
 
 impl<'a> EmbedField<'a> {
+    /// Create a new embed field
     pub fn new(name: &'a str, value: &'a str) -> Self {
         EmbedField::new_internal(name, value, false)
     }
+    /// Create a new inline embed field
     pub fn new_inline(name: &'a str, value: &'a str) -> Self {
         EmbedField::new_internal(name, value, true)
     }

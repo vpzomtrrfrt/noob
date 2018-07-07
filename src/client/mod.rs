@@ -10,16 +10,17 @@ use futures::{Future, Stream};
 
 mod stream;
 
+/// Object used to interact with the Discord API
 pub struct Client {
     http_client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
     token: String,
 }
 
 impl Client {
+    /// Connect to the Discord gateway with a bot token
     pub fn connect(
         token: &str,
-    ) -> Box<Future<Item = (Client, stream::GatewayConnection), Error = Error> + Send>
-    {
+    ) -> Box<Future<Item = (Client, stream::GatewayConnection), Error = Error> + Send> {
         let http =
             hyper::Client::builder().build(try_future_box!(hyper_tls::HttpsConnector::new(1)));
 
@@ -56,31 +57,33 @@ impl Client {
                     struct GetGatewayResult<'a> {
                         url: &'a str,
                     }
-                    let result: GetGatewayResult =
-                        serde_json::from_slice(&body).map_err(|e| Error::Other(
-                                format!("Unable to parse Gateway API response: {:?}", e)
-                                ))?;
+                    let result: GetGatewayResult = serde_json::from_slice(&body).map_err(|e| {
+                        Error::Other(format!("Unable to parse Gateway API response: {:?}", e))
+                    })?;
 
                     println!("{}", result.url);
                     websocket::client::builder::Url::parse(&result.url)
                         .map_err(|e| Error::Other(format!("Unable to parse Gateway URL: {:?}", e)))
                         .map(|url| {
-                            (Client {
-                                http_client: http,
-                                token: token.clone(),
-                            },
-                            stream::GatewayConnection::connect_new(url, token))
+                            (
+                                Client {
+                                    http_client: http,
+                                    token: token.clone(),
+                                },
+                                stream::GatewayConnection::connect_new(url, token),
+                            )
                         })
-                })
+                }),
         )
     }
 
+    /// Send a message on a channel
     pub fn send_message(
         &self,
-        msg: &::MessageBuilder,
+        message: &::MessageBuilder,
         channel: &str,
     ) -> Box<Future<Item = (), Error = Error> + Send> {
-        let body = try_future_box!(msg.to_request_body(channel));
+        let body = try_future_box!(message.to_request_body(channel));
         let auth_value = format!("Bot {}", self.token);
         let auth_value_ref: &str = &auth_value;
         let req = try_future_box!(

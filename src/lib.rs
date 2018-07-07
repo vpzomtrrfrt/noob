@@ -1,3 +1,7 @@
+//! Library for interacting with the Discord API and Gateway, especially for bots, using hyper/tokio.
+
+#![warn(missing_docs)]
+
 extern crate futures;
 extern crate hyper;
 extern crate hyper_tls;
@@ -12,9 +16,11 @@ extern crate try_future;
 #[macro_use]
 extern crate quick_error;
 
+/// Objects for sending messages
 pub mod builder;
 mod client;
 mod error;
+/// Events and related objects
 pub mod events;
 
 pub use builder::{EmbedBuilder, MessageBuilder};
