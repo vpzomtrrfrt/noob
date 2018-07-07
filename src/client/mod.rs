@@ -4,7 +4,7 @@ use hyper_tls;
 use serde_json;
 use websocket;
 
-use {Error, Event};
+use Error;
 
 use futures::{Future, Stream};
 
@@ -18,7 +18,7 @@ pub struct Client {
 impl Client {
     pub fn connect(
         token: &str,
-    ) -> Box<Future<Item = (Client, impl Stream<Item = Event, Error = Error>), Error = Error> + Send>
+    ) -> Box<Future<Item = (Client, stream::GatewayConnection), Error = Error> + Send>
     {
         let http =
             hyper::Client::builder().build(try_future_box!(hyper_tls::HttpsConnector::new(1)));
