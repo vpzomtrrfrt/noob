@@ -24,7 +24,7 @@ mod error;
 pub mod events;
 
 pub use builder::{EmbedBuilder, MessageBuilder};
-pub use client::Client;
+pub use client::{Client, GatewayConnection};
 pub use error::Error;
 pub use events::Event;
 

@@ -11,6 +11,7 @@ use futures::{Future, Sink, Stream};
 use std::sync::{Arc, Mutex};
 use tokio::executor::Executor;
 
+/// Stream of gateway events
 pub struct GatewayConnection {
     token: String,
     url: websocket::client::builder::Url,
@@ -28,6 +29,7 @@ struct ReconnectInfo {
 }
 
 impl GatewayConnection {
+    #[doc(hidden)]
     pub fn connect_new(url: websocket::client::builder::Url, token: String) -> Self {
         Self {
             state: ConnectionState::Pending(GatewayConnection::connect(&token, &url, None)),
