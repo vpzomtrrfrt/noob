@@ -45,6 +45,7 @@ pub struct Myself {
     /// User's [avatar hash](https://discordapp.com/developers/docs/reference#image-formatting)
     pub avatar: Option<String>,
     /// Whether this is a bot account
+    #[serde(default)]
     pub bot: bool,
     /// Whether the account has MFA enabled
     pub mfa_enabled: bool,
