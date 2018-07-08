@@ -10,6 +10,8 @@ use futures::{Future, IntoFuture, Stream};
 
 mod stream;
 
+pub use self::stream::GatewayConnection;
+
 /// Object used to interact with the Discord API
 pub struct Client {
     http_client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
