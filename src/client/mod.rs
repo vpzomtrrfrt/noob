@@ -2,7 +2,6 @@ use futures;
 use hyper;
 use hyper_tls;
 use serde_json;
-use tokio_tungstenite;
 use url;
 
 use Error;
