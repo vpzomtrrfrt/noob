@@ -2,7 +2,9 @@ use futures;
 use serde_json;
 use std;
 use tokio;
-use websocket;
+use url;
+use tokio_tungstenite;
+use tokio_tungstenite::tungstenite;
 
 use events;
 use {Error, Event};
@@ -14,7 +16,7 @@ use tokio::executor::Executor;
 /// Stream of gateway events
 pub struct GatewayConnection {
     token: String,
-    url: websocket::client::builder::Url,
+    url: url::Url,
     state: ConnectionState,
 }
 
@@ -30,7 +32,7 @@ struct ReconnectInfo {
 
 impl GatewayConnection {
     #[doc(hidden)]
-    pub fn connect_new(url: websocket::client::builder::Url, token: String) -> Self {
+    pub fn connect_new(url: url::Url, token: String) -> Self {
         Self {
             state: ConnectionState::Pending(GatewayConnection::connect(&token, &url, None)),
             url,
@@ -40,13 +42,12 @@ impl GatewayConnection {
 
     fn connect(
         token: &str,
-        url: &websocket::client::builder::Url,
+        url: &url::Url,
         resume_info: Option<ReconnectInfo>,
     ) -> Box<Future<Item = ConnectionState, Error = Error> + Send> {
         let token = token.to_owned();
         Box::new(
-            websocket::ClientBuilder::from_url(url)
-                .async_connect(None, &Default::default())
+            tokio_tungstenite::connect_async(url.clone())
                 .map_err(|e| e.into())
                 .and_then(|(socket, _)| socket.into_future().map_err(|(e, _)| e.into()))
                 .and_then(
@@ -80,7 +81,7 @@ impl GatewayConnection {
                             device: &'a str,
                         }
 
-                        if let Some(websocket::message::OwnedMessage::Text(text)) = msg1 {
+                        if let Some(tungstenite::Message::Text(text)) = msg1 {
                             let payload: ::DiscordBasePayload<Hello> =
                                 try_future_box!(serde_json::from_str(&text).map_err(|e| {
                                     Error::Other(format!("Failed to parse hello message: {:?}", e))
@@ -116,7 +117,7 @@ impl GatewayConnection {
                                 ))));
                             Box::new(
                                 socket
-                                    .send(websocket::message::OwnedMessage::Text(first_packet))
+                                    .send(tungstenite::Message::Text(first_packet))
                                     .map_err(|e| e.into())
                                     .map(|socket| (socket, payload.d)),
                             )
@@ -141,11 +142,11 @@ impl GatewayConnection {
                         .spawn(Box::new(
                             sink.send_all(
                                 heartbeat_stream
-                                    .map_err(|e| -> websocket::WebSocketError {
+                                    .map_err(|e| -> tungstenite::Error {
                                         panic!("Timer error: {:?}", e);
                                     })
                                     .map(move |_| {
-                                        websocket::message::OwnedMessage::Text(
+                                        tungstenite::Message::Text(
                                             json!({
                                                        "op": 1,
                                                        "d": match *session_info_hb.lock().unwrap() {
@@ -222,9 +223,9 @@ impl Stream for GatewayConnection {
 
 fn handle_packet(
     session_info: &Arc<Mutex<Option<ReconnectInfo>>>,
-    msg: websocket::message::OwnedMessage,
+    msg: tungstenite::Message,
 ) -> Option<Event> {
-    if let websocket::message::OwnedMessage::Text(text) = msg {
+    if let tungstenite::Message::Text(text) = msg {
         #[derive(Deserialize)]
         struct RecvPayload<'a> {
             pub op: u8,

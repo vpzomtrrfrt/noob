@@ -6,7 +6,8 @@ extern crate futures;
 extern crate hyper;
 extern crate hyper_tls;
 extern crate tokio;
-extern crate websocket;
+extern crate tokio_tungstenite;
+extern crate url;
 #[macro_use]
 extern crate serde_json;
 #[macro_use]

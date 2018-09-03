@@ -2,7 +2,8 @@ use futures;
 use hyper;
 use hyper_tls;
 use serde_json;
-use websocket;
+use tokio_tungstenite;
+use url;
 
 use Error;
 
@@ -66,7 +67,7 @@ impl Client {
                     })?;
 
                     println!("{}", result.url);
-                    websocket::client::builder::Url::parse(&result.url)
+                    url::Url::parse(&result.url)
                         .map_err(|e| Error::Other(format!("Unable to parse Gateway URL: {:?}", e)))
                         .map(|url| {
                             (

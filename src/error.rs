@@ -1,6 +1,6 @@
 use hyper;
 use hyper_tls;
-use websocket;
+use tokio_tungstenite::tungstenite;
 
 quick_error! {
     #[derive(Debug)]
@@ -25,8 +25,8 @@ impl From<hyper_tls::Error> for Error {
     }
 }
 
-impl From<websocket::WebSocketError> for Error {
-    fn from(e: websocket::WebSocketError) -> Self {
+impl From<tungstenite::Error> for Error {
+    fn from(e: tungstenite::Error) -> Self {
         Error::Other(format!("WebSocket Failure: {:?}", e))
     }
 }

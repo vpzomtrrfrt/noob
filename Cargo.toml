@@ -1,6 +1,6 @@
 [package]
 name = "noob"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
 description = "A WIP futures-based Discord bot library"
 license = "AGPL-3.0"
@@ -16,8 +16,9 @@ quick-error = "1.2.2"
 serde_derive = "1.0.69"
 serde_json = "1.0.22"
 serde = "1.0.69"
-websocket = { git = "https://github.com/vpzomtrrfrt/rust-websocket", rev = "0baed6bc"}
 tokio = "0.1.7"
+tokio-tungstenite = "0.6.0"
+url = "1.7.1"
 
 [dev-dependencies]
 tokio-core = "0.1.17"
