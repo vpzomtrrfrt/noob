@@ -21,18 +21,20 @@ async fn res_to_error(
 /// Object used to interact with the Discord API
 pub struct Client {
     http_client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
-    token: String,
+    auth_value: String,
 }
 
 impl Client {
     /// Connect to the Discord gateway with a bot token
     pub async fn connect(
-        token: String,
+        token: &str,
     ) -> Result<(Client, stream::GatewayConnection), Error> {
+        let auth_value = format!("Bot {}", token);
+
         let http = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
 
         let gateway_req = hyper::Request::get("https://discordapp.com/api/v6/gateway/bot")
-            .header(hyper::header::AUTHORIZATION, &token)
+            .header(hyper::header::AUTHORIZATION, &auth_value)
             .body(Default::default())
             .map_err(|e| Error::Other(format!("{:?}", e)))?;
 
@@ -67,9 +69,9 @@ impl Client {
                 (
                     Client {
                         http_client: http,
-                        token: token.clone(),
+                        auth_value: auth_value.clone(),
                     },
-                    stream::GatewayConnection::connect_new(url, token),
+                    stream::GatewayConnection::connect_new(url, auth_value),
                 )
             })
     }
@@ -81,13 +83,11 @@ impl Client {
         channel: &str,
     ) -> Result<(), Error> {
         let body = message.to_request_body(channel)?;
-        let auth_value = format!("Bot {}", self.token);
-        let auth_value_ref: &str = &auth_value;
         let req = hyper::Request::post(format!(
                 "https://discordapp.com/api/v6/channels/{}/messages",
                 channel
         ))
-            .header(hyper::header::AUTHORIZATION, auth_value_ref)
+            .header(hyper::header::AUTHORIZATION, &self.auth_value)
             .header(hyper::header::CONTENT_TYPE, "application/json")
             .header(hyper::header::CONTENT_LENGTH, body.len())
             .body(body.into())

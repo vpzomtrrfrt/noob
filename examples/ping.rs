@@ -4,7 +4,7 @@ use futures::{TryStreamExt};
 async fn main() {
     let token = std::env::var("DISCORD_TOKEN").expect("Missing DISCORD_TOKEN");
 
-    let (client, stream) = noob::Client::connect(token).await.expect("Failed to connect to Discord");
+    let (client, stream) = noob::Client::connect(&token).await.expect("Failed to connect to Discord");
     let client = std::sync::Arc::new(client);
     let res = stream.try_for_each(move |evt| {
         println!("event: {:?}", evt);
