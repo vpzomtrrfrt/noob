@@ -39,7 +39,8 @@ impl<'a> MessageBuilder<'a> {
             content: self.content,
             channel,
             embed: self.embed,
-        }).map_err(|e| {
+        })
+        .map_err(|e| {
             Error::Other(format!(
                 "Failed to serialize message creation body: {:?}",
                 e

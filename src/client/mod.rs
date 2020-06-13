@@ -1,5 +1,5 @@
-use crate::Error;
 pub use self::stream::GatewayConnection;
+use crate::Error;
 use serde_derive::Deserialize;
 
 mod stream;
@@ -26,9 +26,7 @@ pub struct Client {
 
 impl Client {
     /// Connect to the Discord gateway with a bot token
-    pub async fn connect(
-        token: &str,
-    ) -> Result<(Client, stream::GatewayConnection), Error> {
+    pub async fn connect(token: &str) -> Result<(Client, stream::GatewayConnection), Error> {
         let auth_value = format!("Bot {}", token);
 
         let http = hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
@@ -43,9 +41,7 @@ impl Client {
             hyper::StatusCode::UNAUTHORIZED => {
                 return Err(Error::AuthenticationFailed);
             }
-            hyper::StatusCode::OK => {
-                hyper::body::to_bytes(resp.into_body()).await?
-            }
+            hyper::StatusCode::OK => hyper::body::to_bytes(resp.into_body()).await?,
             status => {
                 return Err(Error::Other(format!(
                     "Gateway request returned unexpected status {}",
@@ -58,9 +54,8 @@ impl Client {
         struct GetGatewayResult<'a> {
             url: &'a str,
         }
-        let result: GetGatewayResult = serde_json::from_slice(&body).map_err(|e| {
-            Error::Other(format!("Unable to parse Gateway API response: {:?}", e))
-        })?;
+        let result: GetGatewayResult = serde_json::from_slice(&body)
+            .map_err(|e| Error::Other(format!("Unable to parse Gateway API response: {:?}", e)))?;
 
         println!("{}", result.url);
         url::Url::parse(&result.url)
@@ -84,14 +79,14 @@ impl Client {
     ) -> Result<(), Error> {
         let body = message.to_request_body(channel)?;
         let req = hyper::Request::post(format!(
-                "https://discordapp.com/api/v6/channels/{}/messages",
-                channel
+            "https://discordapp.com/api/v6/channels/{}/messages",
+            channel
         ))
-            .header(hyper::header::AUTHORIZATION, &self.auth_value)
-            .header(hyper::header::CONTENT_TYPE, "application/json")
-            .header(hyper::header::CONTENT_LENGTH, body.len())
-            .body(body.into())
-            .map_err(|e| Error::Other(format!("Failed to create request: {:?}", e)))?;
+        .header(hyper::header::AUTHORIZATION, &self.auth_value)
+        .header(hyper::header::CONTENT_TYPE, "application/json")
+        .header(hyper::header::CONTENT_LENGTH, body.len())
+        .body(body.into())
+        .map_err(|e| Error::Other(format!("Failed to create request: {:?}", e)))?;
 
         res_to_error(self.http_client.request(req).await?).await?;
 
