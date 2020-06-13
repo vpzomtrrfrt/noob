@@ -1,6 +1,5 @@
-use Error;
-
-use serde_json;
+use crate::Error;
+use serde_derive::Serialize;
 
 /// Object used to construct outgoing messages
 pub struct MessageBuilder<'a> {

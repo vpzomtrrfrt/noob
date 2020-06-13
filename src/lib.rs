@@ -2,21 +2,6 @@
 
 #![warn(missing_docs)]
 
-extern crate futures;
-extern crate hyper;
-extern crate hyper_tls;
-extern crate tokio;
-extern crate tokio_tungstenite;
-extern crate url;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate try_future;
-#[macro_use]
-extern crate quick_error;
-
 /// Objects for sending messages
 pub mod builder;
 mod client;
@@ -28,6 +13,8 @@ pub use builder::{EmbedBuilder, MessageBuilder};
 pub use client::{Client, GatewayConnection};
 pub use error::Error;
 pub use events::Event;
+
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 struct DiscordBasePayload<I> {
