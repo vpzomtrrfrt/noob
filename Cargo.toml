@@ -1,24 +1,23 @@
 [package]
 name = "noob"
-version = "1.1.0"
+version = "2.0.0-alpha.1"
 authors = ["Colin Reeder <vpzomtrrfrt@gmail.com>"]
 description = "A WIP futures-based Discord bot library"
 license = "MPL-2.0"
 keywords = ["tokio", "discord", "futures"]
 repository = "https://github.com/vpzomtrrfrt/noob"
+edition = "2018"
 
 [dependencies]
-futures = "0.1.21"
-hyper = "0.12.5"
-hyper-tls = "0.3.0"
-try_future = "0.1.2"
-quick-error = "1.2.2"
-serde_derive = "1.0.69"
-serde_json = "1.0.22"
-serde = "1.0.69"
-tokio = "0.1.7"
-tokio-tungstenite = "0.6.0"
-url = "1.7.1"
+futures = "0.3.5"
+hyper = "0.13.6"
+hyper-tls = "0.4.1"
+serde_derive = "1.0.111"
+serde_json = "1.0.55"
+serde = "1.0.111"
+tokio = "0.2.21"
+tokio-tungstenite = { version = "0.10.1", features = ["tls"] }
+url = "2.1.1"
 
 [dev-dependencies]
-tokio-core = "0.1.17"
+tokio = { version = "0.2.21", features = ["macros"] }

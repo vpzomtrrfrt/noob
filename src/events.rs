@@ -1,3 +1,5 @@
+use serde_derive::Deserialize;
+
 /// Type used for IDs
 pub type Snowflake = String;
 
