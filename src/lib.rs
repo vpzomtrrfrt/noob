@@ -11,7 +11,7 @@ pub mod events;
 mod types;
 
 pub use builder::{EmbedBuilder, MessageBuilder};
-pub use client::{Client, GatewayConnection};
+pub use client::{Client, GatewayConnection, ListAnchor};
 pub use error::Error;
 pub use events::Event;
 pub use types::*;
