@@ -1,4 +1,5 @@
 pub use self::stream::GatewayConnection;
+use crate::types::Snowflake;
 use crate::Error;
 use serde_derive::Deserialize;
 
@@ -91,5 +92,55 @@ impl Client {
         res_to_error(self.http_client.request(req).await?).await?;
 
         Ok(())
+    }
+
+    /// Returns the messages for a channel
+    pub async fn get_channel_messages(
+        &self,
+        channel: &str,
+        anchor: ListAnchor<'_>,
+        limit: impl Into<Option<u8>>,
+    ) -> Result<Vec<crate::types::Message>, Error> {
+        let mut url = format!(
+            "https://discordapp.com/api/v6/channels/{}/messages?",
+            percent_encoding::utf8_percent_encode(channel, percent_encoding::NON_ALPHANUMERIC),
+        );
+
+        {
+            let len = url.len();
+            let mut query_ser = form_urlencoded::Serializer::for_suffix(&mut url, len);
+            anchor.write_to_query(&mut query_ser);
+
+            if let Some(limit) = limit.into() {
+                query_ser.append_pair("limit", &limit.to_string());
+            }
+        }
+
+        let req = hyper::Request::get(url)
+            .header(hyper::header::AUTHORIZATION, &self.auth_value)
+            .body(Default::default())
+            .map_err(|e| Error::Other(format!("Failed to create request: {:?}", e)))?;
+
+        let res = res_to_error(self.http_client.request(req).await?).await?;
+        let body = hyper::body::to_bytes(res.into_body()).await?;
+
+        serde_json::from_slice(&body)
+            .map_err(|e| Error::Other(format!("Unable to parse Gateway API response: {:?}", e)))
+    }
+}
+
+pub enum ListAnchor<'a> {
+    Around(&'a Snowflake),
+    Before(&'a Snowflake),
+    After(&'a Snowflake),
+}
+
+impl<'a> ListAnchor<'a> {
+    fn write_to_query<T: form_urlencoded::Target>(&self, ser: &mut form_urlencoded::Serializer<T>) {
+        match self {
+            ListAnchor::Around(id) => ser.append_pair("around", id),
+            ListAnchor::Before(id) => ser.append_pair("before", id),
+            ListAnchor::After(id) => ser.append_pair("after", id),
+        };
     }
 }

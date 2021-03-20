@@ -8,11 +8,13 @@ mod client;
 mod error;
 /// Events and related objects
 pub mod events;
+mod types;
 
 pub use builder::{EmbedBuilder, MessageBuilder};
 pub use client::{Client, GatewayConnection};
 pub use error::Error;
 pub use events::Event;
+pub use types::*;
 
 use serde_derive::{Deserialize, Serialize};
 
