@@ -1,6 +1,6 @@
 use crate::{Error, Event};
 
-use futures::{SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use serde_derive::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -122,28 +122,30 @@ impl GatewayConnection {
         }?;
         let session_info: Arc<Mutex<Option<ReconnectInfo>>> = Arc::new(Mutex::new(None));
         let (mut sink, stream) = socket.split();
-        let heartbeat_stream =
+        let mut heartbeat_interval =
             tokio::time::interval(std::time::Duration::from_millis(hello.heartbeat_interval));
         let session_info_hb = session_info.clone();
         tokio::spawn(async move {
-            sink.send_all(&mut heartbeat_stream.map(move |_| {
-                Ok(tungstenite::Message::Text(
-                    serde_json::json!({
-                        "op": 1,
-                        "d": match *session_info_hb.lock().unwrap() {
-                            Some(ref info) => {
-                                Some(info.last_event)
-                            },
-                            None => None
-                        }
-                    })
-                    .to_string(),
-                ))
-            }))
-            .map_err(|e| {
-                eprintln!("Websocket error in heartbeat stream: {:?}", e);
-            })
-            .await
+            loop {
+                heartbeat_interval.tick().await;
+                if let Err(err) = sink
+                    .send(tungstenite::Message::Text(
+                        serde_json::json!({
+                            "op": 1,
+                            "d": match *session_info_hb.lock().unwrap() {
+                                Some(ref info) => {
+                                    Some(info.last_event)
+                                },
+                                None => None
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .await
+                {
+                    eprintln!("Websocket error in heartbeat stream: {:?}", err);
+                }
+            }
         });
         Ok(ConnectionState::Connected(Box::pin(
             stream.map_err(|e| e.into()).try_filter_map(move |packet| {
