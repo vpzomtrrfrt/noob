@@ -129,9 +129,13 @@ impl Client {
     }
 }
 
+/// How the message list should be paginated
 pub enum ListAnchor<'a> {
+    /// Retrieve messages around the specified ID
     Around(&'a Snowflake),
+    /// Retrieve messages before the specified ID
     Before(&'a Snowflake),
+    /// Retrieve messages after the specified ID
     After(&'a Snowflake),
 }
 
